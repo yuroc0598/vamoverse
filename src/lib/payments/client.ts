@@ -41,25 +41,35 @@ export interface PaymentClient {
 // Factory - chooses mock or stripe based on env
 let clientInstance: PaymentClient | null = null
 
+// Use static imports for ESM compatibility (fixes vitest require resolution)
+import { MockPaymentClient as MockClient } from './mock'
+import { StripePaymentClient as StripeClient } from './stripe'
+
 export function getPaymentClient(): PaymentClient {
   if (clientInstance) return clientInstance
 
   const hasStripeKey = !!process.env.STRIPE_SECRET_KEY
 
   if (hasStripeKey) {
-    // Dynamic import to avoid bundling stripe when not needed
-    const { StripePaymentClient } = require('./stripe')
-    clientInstance = new StripePaymentClient()
+    clientInstance = new StripeClient()
   } else {
-    const { MockPaymentClient } = require('./mock')
-    clientInstance = new MockPaymentClient()
+    clientInstance = new MockClient()
   }
 
   return clientInstance
 }
 
+// For testing: reset singleton
+export function _resetPaymentClientForTests() {
+  clientInstance = null
+}
+
 // Helper for auto-capture delay
 export function getAutoCaptureDelayMs(): number {
-  const minutes = parseInt(process.env.AUTO_CAPTURE_DELAY_MINUTES || '120', 10)
+  const raw = process.env.AUTO_CAPTURE_DELAY_MINUTES || '120'
+  const minutes = parseInt(raw, 10)
+  if (isNaN(minutes) || minutes <= 0) {
+    return 120 * 60 * 1000
+  }
   return minutes * 60 * 1000
 }

@@ -71,20 +71,21 @@ export async function registerWithCapacityCheck(
 ): Promise<RegistrationResult> {
   // Simulate row lock with check + insert atomically
   // In real DB this is one transaction
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
   
   if (currentCount >= capacity) {
     // Waitlist path
     return {
       success: true,
       status: 'waitlisted',
-      registrationId: `reg_wait_${Date.now()}`
+      registrationId: `reg_wait_${uniqueSuffix}`
     }
   }
 
   return {
     success: true,
     status: 'registered',
-    registrationId: `reg_${Date.now()}`
+    registrationId: `reg_${uniqueSuffix}`
   }
 }
 

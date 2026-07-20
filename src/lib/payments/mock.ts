@@ -41,8 +41,8 @@ export class MockPaymentClient implements PaymentClient {
       }
     }
 
-    const id = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
-    const stripeId = `pi_mock_${Math.random().toString(36).substr(2, 9)}`
+    const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+    const stripeId = `pi_mock_${Math.random().toString(36).substring(2, 11)}`
     
     const now = new Date()
     let status: PaymentStatus = 'captured'

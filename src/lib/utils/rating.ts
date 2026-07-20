@@ -1,7 +1,11 @@
 export type Compatibility = 'good' | 'stretch' | 'mismatch' | 'unknown'
 
 export function getCompatibility(playerUTR: number | undefined, eventMin: number | undefined, eventMax: number | undefined): { status: Compatibility; label: string; delta: number } {
-  if (!playerUTR || !eventMin || !eventMax) {
+  if (playerUTR == null || eventMin == null || eventMax == null) {
+    return { status: 'unknown', label: 'Level not set', delta: 0 }
+  }
+  // Additional guard: non-finite or out of realistic UTR range still computes delta but treat missing as unknown
+  if (!isFinite(playerUTR) || !isFinite(eventMin) || !isFinite(eventMax)) {
     return { status: 'unknown', label: 'Level not set', delta: 0 }
   }
 
@@ -27,7 +31,10 @@ export function getCompatibilityColor(status: Compatibility) {
 }
 
 export function parseUTR(input: string): number | null {
-  const num = parseFloat(input)
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const num = parseFloat(trimmed)
   // FIX N15/M6: UTR up to 16.5 not 10.5 - real UTR goes to 16.5 for college/pro, was incorrectly capped at 10.5
   if (isNaN(num) || num < 1 || num > 16.5) return null
   return Math.round(num * 100) / 100

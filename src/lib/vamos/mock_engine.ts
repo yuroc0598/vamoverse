@@ -52,8 +52,13 @@ export function parseIntent(message: string): ParsedIntent {
     }
 
     let gender: string | undefined
-    if (lower.includes("mens") || lower.includes("men's")) gender = 'M'
-    if (lower.includes("womens") || lower.includes("women's")) gender = 'F'
+    // FIX: "womens" contains "mens" substring, so detect womens first then check mens in string with womens removed
+    const sanitizedForMens = lower.replace(/womens/g, '').replace(/women's/g, '').replace(/women/g, '')
+    const hasMens = sanitizedForMens.includes("mens") || sanitizedForMens.includes("men's") || sanitizedForMens.includes(" men ")
+    const hasWomens = lower.includes("womens") || lower.includes("women's") || lower.includes("women")
+    if (hasMens && hasWomens) gender = 'any'
+    else if (hasMens) gender = 'M'
+    else if (hasWomens) gender = 'F'
 
     let discipline: string | undefined
     if (lower.includes('mixed doubles')) discipline = 'mixed_doubles'

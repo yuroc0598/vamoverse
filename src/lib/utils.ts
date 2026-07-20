@@ -23,5 +23,11 @@ export function formatDate(date: Date | string) {
 }
 
 export function generateMockId(prefix = 'mock') {
-  return `${prefix}_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`
+  // Use crypto.randomUUID if available for better uniqueness, fallback to Math.random
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return `${prefix}_${crypto.randomUUID().split('-')[0]}_${Date.now()}`
+    }
+  } catch {}
+  return `${prefix}_${Math.random().toString(36).substring(2, 9)}_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`
 }

@@ -9,13 +9,17 @@ export class StripePaymentClient implements PaymentClient {
     // const pi = await stripe.paymentIntents.create({...})
     console.log('Stripe client called but not fully implemented, falling back to mock logic', params)
     
-    const id = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+    const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+    const fee = params.applicationFeeCents ?? Math.round(params.amountCents * 0.05)
     return {
       id,
       status: params.captureMethod === 'manual' ? 'requires_capture' : 'captured',
       amountCents: params.amountCents,
-      autoCaptureAt: params.autoCaptureAt
-    }
+      applicationFeeCents: fee,
+      netToCoachCents: params.amountCents - fee,
+      autoCaptureAt: params.autoCaptureAt,
+      idempotencyKey: params.idempotencyKey || `idem_${Date.now()}`,
+    } as PaymentIntentResult
   }
 
   async capturePayment(paymentId: string): Promise<{ status: PaymentStatus }> {

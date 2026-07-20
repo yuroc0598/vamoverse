@@ -95,6 +95,7 @@ export function getCapacityForDiscipline(discipline: Discipline, eventType: stri
   if (eventType === 'custom_match') {
     if (['mens_singles', 'womens_singles', 'open_singles'].includes(discipline)) return 2
     if (['mens_doubles', 'womens_doubles', 'mixed_doubles', 'open_doubles'].includes(discipline)) return 4
+    if (discipline === 'open') return 20 // open generic max 20 per validateDiscipline
   }
   if (eventType === 'private') return 1
   if (eventType === 'semi_private') return 4 // max
