@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { VAMOS_TOOLS } from '@/lib/vamos/tools'
 import { VAMOS_SYSTEM_PROMPT } from '@/lib/vamos/prompts'
 import { parseIntent, generateMockResponse } from '@/lib/vamos/mock_engine'
+import { logger } from '@/lib/logger'
 
 // Mock data for tools when no real DB
 const mockPlayers = [
@@ -22,6 +23,7 @@ const mockPayments = [
 ]
 
 export async function POST(req: NextRequest) {
+  const requestId = req.headers.get('x-request-id') || undefined
   try {
     const body = await req.json()
     const { message, confirmedActionId } = body
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
         // FIX N24: Real validation - must start with pa_ AND length >= 20 AND signature valid AND exists in DB scoped to user AND not expired
         const isValidFormat = confirmedActionId.startsWith('pa_') && confirmedActionId.length >= 20
         if (!isValidFormat) {
+          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_format' })
           return NextResponse.json({
             response: `Invalid confirmation id format - must be server-issued pa_... with 20+ chars. Got: ${confirmedActionId.slice(0,10)}... Please request a fresh action from Vamos. Security check per N24 fix.`,
             requires_confirmation: false
@@ -85,6 +88,7 @@ export async function POST(req: NextRequest) {
         // Simulate signature check: id must have 3 parts pa_<timestamp>_<hmac> and timestamp not expired
         const parts = confirmedActionId.split('_')
         if (parts.length < 3) {
+          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_structure' })
           return NextResponse.json({
             response: `Invalid confirmation id structure - expected pa_<timestamp>_<signature>. Please try again.`,
             requires_confirmation: false
@@ -92,6 +96,7 @@ export async function POST(req: NextRequest) {
         }
         const timestamp = parseInt(parts[1])
         if (isNaN(timestamp) || Date.now() - timestamp > 10*60*1000) {
+          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'expired_or_bad_timestamp' })
           return NextResponse.json({
             response: `Confirmation id expired (10min expiry per H7) or invalid timestamp. Please request fresh action from Vamos.`,
             requires_confirmation: false
@@ -105,6 +110,7 @@ export async function POST(req: NextRequest) {
         const isSignatureValid = /^[a-f0-9]{16,}$/.test(signature) || signature.length >= 16
 
         if (!isSignatureValid) {
+          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_signature' })
           return NextResponse.json({
             response: `Invalid confirmation signature - must be HMAC hex 16+ chars. Got length ${signature.length}. Please request fresh action. Security check per N24.`,
             requires_confirmation: false
@@ -115,6 +121,7 @@ export async function POST(req: NextRequest) {
         // if (!pending) return 400, if expired return 400, verify HMAC, revalidate
 
         // For mock, we simulate successful revalidation but honestly label that DB lookup is simulated (not real) per V5 honest labeling requirement
+        logger.info('vamos.confirmation_accepted', { requestId, intent: intent.intent, mock: true })
         return NextResponse.json({
           response: `Vamos! Done - created your ${intent.entities.discipline || 'mixed doubles'} match for Thu 7pm at Fremont Tennis Center. Invited 3 players (Sarah, Leo, Emma). I'll notify you when they accept. 🎾 (MOCK CONFIRMATION - format valid pa_... with timestamp ${new Date(timestamp).toLocaleTimeString()} + signature length ${signature.length} checked, expiry 10min checked, user scope would be checked in prod per H7/N24 fix. In prod this would be server-issued signed id + DB lookup + HMAC verification + amount/payee/gender/capacity revalidation - currently mock, not cryptographically verified against stored pending_action)`,
           tool_calls: [],
@@ -159,7 +166,7 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (err: any) {
-    console.error('Vamos API error', err)
+    logger.error('vamos.request_failed', { requestId, err })
     return NextResponse.json({ response: "Shoot - net cord! My brain had a fault. Try again? Ask me to find doubles players or check your schedule.", error: err.message }, { status: 200 })
   }
 }

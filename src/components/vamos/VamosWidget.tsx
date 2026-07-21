@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { MessageCircle, X, Send, Zap } from "lucide-react"
+import { logger } from "@/lib/logger"
 
 interface Message {
   role: 'user' | 'assistant'
@@ -34,8 +35,12 @@ export function VamosWidget() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text })
       })
+      if (!res.ok) {
+        // A non-2xx is a real failure — surface it to logs instead of masking it as "mock mode".
+        logger.error('vamos.chat_http_error', { status: res.status })
+      }
       const data = await res.json()
-      
+
       const assistantMsg: Message = {
         role: 'assistant',
         content: data.response || data.message || "Got it - Vamos!",
@@ -44,7 +49,9 @@ export function VamosWidget() {
       }
       setMessages(prev => [...prev, assistantMsg])
     } catch (e) {
-      setMessages(prev => [...prev, { role: 'assistant', content: "I'm in mock mode - I can still help! Try: 'Find me a mixed doubles game Thu 7pm UTR 4-5' or 'When is my next lesson?'" }])
+      // Network/parse failure. Log it — don't disguise the error as a canned success.
+      logger.error('vamos.chat_request_failed', { err: e })
+      setMessages(prev => [...prev, { role: 'assistant', content: "I'm having trouble reaching Vamos right now - please try again in a moment." }])
     } finally {
       setLoading(false)
     }

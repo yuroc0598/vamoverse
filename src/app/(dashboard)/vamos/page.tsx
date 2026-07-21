@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Send, Zap, Users, Calendar, DollarSign } from "lucide-react"
+import { logger } from "@/lib/logger"
 
 interface ChatMsg { role: 'user'|'assistant', content: string, requiresConfirmation?: boolean, pendingAction?: any }
 
@@ -22,10 +23,12 @@ export default function VamosPage() {
     setLoading(true)
     try {
       const res = await fetch('/api/vamos/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: text }) })
+      if (!res.ok) logger.error('vamos.chat_http_error', { status: res.status })
       const data = await res.json()
       setMessages(m => [...m, { role: 'assistant', content: data.response, requiresConfirmation: data.requires_confirmation, pendingAction: data.pending_action }])
-    } catch {
-      setMessages(m => [...m, { role: 'assistant', content: "I'm in mock mode - but I got you! Found 3 players at UTR 4-5: Sarah 4.8F, Leo 4.5M, Emma 4.2F. Create mixed doubles Thu 7pm and invite them?" }])
+    } catch (e) {
+      logger.error('vamos.chat_request_failed', { err: e })
+      setMessages(m => [...m, { role: 'assistant', content: "I'm having trouble reaching Vamos right now - please try again in a moment." }])
     } finally { setLoading(false) }
   }
 

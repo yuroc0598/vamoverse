@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { createClient, isMockMode } from "@/lib/supabase/client"
 import { toast } from "sonner"
+import { logger } from "@/lib/logger"
 
 function SignupContent() {
   const search = useSearchParams()
@@ -44,6 +45,7 @@ function SignupContent() {
       toast.success(`Account created! Welcome to Vamoverse as ${role}`)
       router.push('/dashboard')
     } catch (err: any) {
+      logger.error('auth.signup_failed', { err })
       toast.error(err.message)
     } finally {
       setLoading(false)

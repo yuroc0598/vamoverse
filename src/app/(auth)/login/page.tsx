@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { createClient, isMockMode } from "@/lib/supabase/client"
 import { toast } from "sonner"
+import { logger } from "@/lib/logger"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("coach@demo.com")
@@ -36,6 +37,7 @@ export default function LoginPage() {
       toast.success(`Vamos! Welcome ${email}`)
       router.push('/dashboard')
     } catch (err: any) {
+      logger.error('auth.login_failed', { err })
       toast.error(err.message)
     } finally {
       setLoading(false)

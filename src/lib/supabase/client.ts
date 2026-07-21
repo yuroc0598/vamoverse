@@ -1,5 +1,6 @@
 // Supabase client - with mock fallback for MVP without real Supabase
 import { createBrowserClient } from '@supabase/ssr'
+import { logger } from '../logger'
 
 let mockSupabase: any = null
 
@@ -76,7 +77,7 @@ export function createClient() {
   
   // If no real Supabase or mock URL, return mock client
   if (!url || !key || url.includes('localhost') || url.includes('mock')) {
-    console.log('Using Mock Supabase Client for MVP demo')
+    logger.debug('supabase.using_mock_client', { reason: 'no real Supabase URL/key configured' })
     return createMockClient()
   }
 

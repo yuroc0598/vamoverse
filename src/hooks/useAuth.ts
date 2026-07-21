@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState } from 'react'
 import { createClient, isMockMode } from '@/lib/supabase/client'
+import { logger } from '@/lib/logger'
 
 export interface MockUser {
   id: string
@@ -26,23 +27,33 @@ export function useAuth() {
           try {
             const parsed = JSON.parse(stored)
             setUser(parsed)
-          } catch {}
+          } catch (e) {
+            // Corrupt stored user — drop it so we don't loop on bad data, and log why.
+            logger.warn('auth.mock_user_parse_failed', { err: e })
+            localStorage.removeItem('vamoverse_mock_user')
+          }
         }
         setLoading(false)
         return
       }
 
-      const supabase = createClient()
-      const { data } = await supabase.auth.getUser()
-      if (data.user) {
-        setUser({
-          id: data.user.id,
-          email: data.user.email || '',
-          role: (data.user.user_metadata?.role as any) || 'student',
-          display_name: data.user.user_metadata?.display_name
-        })
+      try {
+        const supabase = createClient()
+        const { data } = await supabase.auth.getUser()
+        if (data.user) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email || '',
+            role: (data.user.user_metadata?.role as any) || 'student',
+            display_name: data.user.user_metadata?.display_name
+          })
+        }
+      } catch (e) {
+        // Don't leave the app stuck in a loading state if auth lookup fails.
+        logger.error('auth.get_user_failed', { err: e })
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     check()
   }, [])

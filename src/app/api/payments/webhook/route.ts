@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logger } from '@/lib/logger'
 
 // FIX C3: Webhook handler with signature verification + idempotent processing
 // This is the source of truth for payment status, not client setInterval
 
 export async function POST(req: NextRequest) {
+  const requestId = req.headers.get('x-request-id') || undefined
   const signature = req.headers.get('stripe-signature')
-  
+
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    // Mock mode - log webhook would be processed
+    // Mock mode - the raw body can contain customer PII, so log only its size,
+    // never the payload itself.
     const body = await req.text()
-    console.log('Mock webhook received (no secret configured):', body.slice(0,200))
+    logger.info('payments.webhook_received', { requestId, mode: 'mock', bodyBytes: body.length })
     return NextResponse.json({ received: true, mock: true, note: 'Stripe webhook secret not configured - mock mode. In prod, verify signature.' })
   }
 
@@ -45,7 +48,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true })
 
   } catch (err: any) {
-    console.error('Webhook signature verification failed', err)
+    // Security-relevant: a failed signature check may indicate a forged webhook.
+    logger.warn('payments.webhook_signature_invalid', { requestId, err })
     return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 })
   }
 }
