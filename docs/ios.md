@@ -2,6 +2,23 @@
 
 Build Vamoverse as native iOS app using Capacitor. Requires Mac + Xcode + iPhone + cable.
 
+## Prep status (this Mac)
+
+Already done in this repo/checkout:
+- ✅ `.env` created (mock backend values)
+- ✅ `capacitor.config.ts` livereload URL set to `http://172.24.237.7:3000` (update if your Mac IP changes)
+- ✅ Next.js build works; web assets + config synced into `ios/App/App/public` via `npx cap copy ios`
+- ✅ Dev server verified reachable at `http://172.24.237.7:3000` (localhost + LAN both HTTP 200)
+- ✅ Fixed a broken `node_modules/.bin/next` (was a real file, not a symlink → `Cannot find module '../server/require-hook'`)
+
+Still required — MUST be done manually (need sudo / App Store, cannot be scripted here):
+- ❌ **Full Xcode** — only CommandLineTools present. Install Xcode from the App Store (~12GB), then
+  `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and open Xcode once to accept the license.
+- ❌ **CocoaPods** — cannot install on this Mac's system Ruby 2.6 (modern CocoaPods needs Ruby ≥ 3.1) and
+  Homebrew is permission-locked. After Xcode: either fix Homebrew (`sudo chown -R $(whoami) /opt/homebrew`)
+  then `brew install cocoapods`, OR install a newer Ruby (rbenv/asdf) and `gem install cocoapods`.
+  `npm run ios:sync` runs `pod install`, so it needs `pod` on PATH.
+
 ## Requirements
 
 - **Mac** with Xcode installed (App Store, ~12GB)
@@ -144,7 +161,7 @@ npm run ios:build   # Build static web to out/
 npm run ios:sync    # Copy out/ to ios/App/public
 npm run ios:open    # Open Xcode
 npm run ios:dev     # Build + sync + open (all in one)
-npm run ios:run     # Run with livereload (needs IP in config)
+npm run ios:livereload  # Run with livereload (needs IP in config)
 ```
 
 ## Architecture Note

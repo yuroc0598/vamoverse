@@ -45,5 +45,16 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- DEV ONLY: allow cleartext HTTP so the Capacitor WebView can load the
+	     local Next.js dev server over livereload. Remove before shipping. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Vamoverse connects to the local development server for live reload.</string>
 </dict>
 </plist>

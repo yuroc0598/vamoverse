@@ -21,7 +21,12 @@
     "ios:sync": "cap sync ios",
     "ios:open": "cap open ios",
     "ios:dev": "next build && cap sync ios && cap open ios",
-    "ios:livereload": "cap run ios --external --livereload --host=0.0.0.0 --port=3000"
+    "ios:livereload": "cap run ios --external --livereload --host=0.0.0.0 --port=3000",
+    "ios:run": "bash scripts/ios.sh run",
+    "ios:go": "bash scripts/ios.sh go",
+    "ios:logs": "bash scripts/ios.sh logs",
+    "ios:ip": "bash scripts/ios.sh ip",
+    "ios:device": "bash scripts/ios.sh device"
   },
   "dependencies": {
     "@capacitor/cli": "^6.2.0",
@@ -40,7 +45,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.400.0",
-    "next": "^14.2.5",
+    "next": "^14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.1",

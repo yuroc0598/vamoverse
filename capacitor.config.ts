@@ -5,9 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Vamoverse',
   webDir: 'out',
   server: {
-    // For livereload during dev: uncomment and set your IP
-    // url: 'http://192.168.1.XX:3000',
-    // cleartext: true,
+    // Livereload during dev: Mac LAN IP (Mac + iPhone must be on same WiFi)
+    url: 'http://172.24.237.7:3000',
+    cleartext: true,
   },
   ios: {
     contentInset: 'always',
