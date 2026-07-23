@@ -17,7 +17,6 @@ interface ParsedIntent {
 export function parseIntent(message: string): ParsedIntent {
   const lower = message.toLowerCase()
   
-  // Event/schedule intents
   if (
     lower.includes('next lesson') ||
     lower.includes('my schedule') ||
@@ -28,7 +27,6 @@ export function parseIntent(message: string): ParsedIntent {
     return { intent: 'list_events', entities: {}, confidence: 0.9 }
   }
 
-  // Player search / match filling
   if (
     lower.includes('find player') ||
     lower.includes('find a player') ||
@@ -52,7 +50,6 @@ export function parseIntent(message: string): ParsedIntent {
     }
 
     let gender: string | undefined
-    // FIX: "womens" contains "mens" substring, so detect womens first then check mens in string with womens removed
     const sanitizedForMens = lower.replace(/womens/g, '').replace(/women's/g, '').replace(/women/g, '')
     const hasMens = sanitizedForMens.includes("mens") || sanitizedForMens.includes("men's") || sanitizedForMens.includes(" men ")
     const hasWomens = lower.includes("womens") || lower.includes("women's") || lower.includes("women")
@@ -61,9 +58,11 @@ export function parseIntent(message: string): ParsedIntent {
     else if (hasWomens) gender = 'F'
 
     let discipline: string | undefined
-    if (lower.includes('mixed doubles')) discipline = 'mixed_doubles'
-    else if (lower.includes('mens doubles') || lower.includes("men's doubles")) discipline = 'mens_doubles'
-    else if (lower.includes('womens doubles') || lower.includes("women's doubles")) discipline = 'womens_doubles'
+    if (/\bmixed\s+doubles\b/.test(lower)) discipline = 'mixed_doubles'
+    else if (/\bwomens?\s+doubles\b/.test(lower) || lower.includes("women's doubles") || lower.includes('womens doubles')) discipline = 'womens_doubles'
+    else if (/\bmens?\s+doubles\b/.test(lower) || lower.includes("men's doubles") || lower.includes('mens doubles')) discipline = 'mens_doubles'
+    else if (/\bwomens?\s+singles\b/.test(lower) || lower.includes("women's singles") || lower.includes('womens singles')) discipline = 'womens_singles'
+    else if (/\bmens?\s+singles\b/.test(lower) || lower.includes("men's singles") || lower.includes('mens singles')) discipline = 'mens_singles'
     else if (lower.includes('doubles')) discipline = 'open_doubles'
     else if (lower.includes('singles')) discipline = 'open_singles'
 
@@ -74,7 +73,6 @@ export function parseIntent(message: string): ParsedIntent {
     }
   }
 
-  // Payments
   if (
     lower.includes('owe') ||
     lower.includes('payment') ||
@@ -82,19 +80,18 @@ export function parseIntent(message: string): ParsedIntent {
     lower.includes('revenue') ||
     lower.includes('charge')
   ) {
-    // Check if it's a create payment intent
     if (lower.includes('charge') || lower.includes('create payment')) {
-      const amountMatch = lower.match(/\$(\d+)/)
+      const amountMatch = lower.match(/\$\s*(\d+(?:\.\d{1,2})?)/)
+      const amountCents = amountMatch ? Math.round(parseFloat(amountMatch[1]) * 100) : undefined
       return {
         intent: 'create_payment_draft',
-        entities: { amount: amountMatch ? parseInt(amountMatch[1]) * 100 : undefined },
+        entities: { amount: amountCents },
         confidence: 0.7
       }
     }
     return { intent: 'list_payments', entities: {}, confidence: 0.8 }
   }
 
-  // Create match
   if (
     lower.includes('book') ||
     lower.includes('create') && (lower.includes('match') || lower.includes('game') || lower.includes('clinic'))

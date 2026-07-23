@@ -1,35 +1,92 @@
 "use client"
-import { useState, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { createClient, isMockMode } from "@/lib/supabase/client"
+import { createClient, isMockMode, ALLOWED_ROLES } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { logger } from "@/lib/logger"
 
-function SignupContent() {
-  const search = useSearchParams()
-  const initialRole = (search.get('role') as any) || 'student'
-  const [role, setRole] = useState<'coach'|'student'|'parent'>(initialRole)
+type AllowedRole = typeof ALLOWED_ROLES[number]
+const ALLOWED_SET = new Set<string>(ALLOWED_ROLES)
+
+function calcAge(dobStr: string): number | null {
+  if (!dobStr) return null
+  const d = new Date(dobStr)
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - d.getFullYear()
+  const m = now.getMonth() - d.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--
+  return age
+}
+
+export default function SignupPage() {
+  const initialRole: AllowedRole = 'student'
+  const [role, setRole] = useState<AllowedRole>(initialRole)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [displayName, setDisplayName] = useState("")
+  const [dob, setDob] = useState("")
+  const [parentEmail, setParentEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  const age = calcAge(dob)
+  const isMinor = age !== null && age < 18
+
+  const handleRoleChange = (r: string) => {
+    if (!ALLOWED_SET.has(r)) {
+      setRole('student')
+      return
+    }
+    setRole(r as AllowedRole)
+  }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
+      if (!ALLOWED_SET.has(role)) {
+        toast.error("Invalid role")
+        setLoading(false)
+        return
+      }
+
+      if (role === 'student' && !dob) {
+        toast.error("Date of birth required for players (COPPA)")
+        setLoading(false)
+        return
+      }
+      if (dob) {
+        const parsed = calcAge(dob)
+        if (parsed === null) {
+          toast.error("Invalid date of birth")
+          setLoading(false)
+          return
+        }
+      }
+      if (isMinor && !parentEmail) {
+        toast.error("Parent email required for minors (under 18)")
+        setLoading(false)
+        return
+      }
+      if (parentEmail && !parentEmail.includes('@')) {
+        toast.error("Invalid parent email")
+        setLoading(false)
+        return
+      }
+
       const supabase = createClient()
-      const { error, data } = await supabase.auth.signUp({
+      const safeRole: AllowedRole = ALLOWED_SET.has(role) ? role : 'student'
+      const { error } = await supabase.auth.signUp({
         email, password,
-        options: { data: { role, display_name: displayName } }
+        options: { data: { role: safeRole, display_name: displayName, dob: dob || undefined, parent_email: parentEmail || undefined, parent_id: parentEmail ? `parent_${parentEmail}` : undefined } }
       })
-      
+
       if (error) {
         toast.error(error.message)
         setLoading(false)
@@ -37,16 +94,30 @@ function SignupContent() {
       }
 
       if (isMockMode()) {
-        const mockUser = { id: `user_${Date.now()}`, email, role, display_name: displayName }
+        const mockUser = {
+          id: `user_${Date.now()}`,
+          email,
+          role: safeRole,
+          display_name: displayName,
+          dob: dob || undefined,
+          parent_email: parentEmail || undefined,
+          parent_id: parentEmail ? `parent_${parentEmail}` : undefined,
+        }
         localStorage.setItem('vamoverse_mock_user', JSON.stringify(mockUser))
         localStorage.setItem('vamoverse_mock_session', JSON.stringify({ user: mockUser }))
+        try {
+          const payload = encodeURIComponent(JSON.stringify({ id: mockUser.id, role: mockUser.role, email: mockUser.email }))
+          document.cookie = `vamoverse_mock_session=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+          document.cookie = `vamoverse_mock_user=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+        } catch {}
       }
 
-      toast.success(`Account created! Welcome to Vamoverse as ${role}`)
+      toast.success(`Account created! Welcome to Vamoverse as ${role}${isMinor ? ' (parent link required)' : ''}${role === 'coach' ? ' - KYC pending' : ''}`)
       router.push('/dashboard')
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Signup failed'
       logger.error('auth.signup_failed', { err })
-      toast.error(err.message)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -62,16 +133,22 @@ function SignupContent() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2 mb-6">
-            {(['coach','student','parent'] as const).map(r => (
+            {(ALLOWED_ROLES as readonly AllowedRole[]).map(r => (
               <button
                 key={r}
-                onClick={()=>setRole(r)}
+                onClick={()=>handleRoleChange(r)}
                 className={`flex-1 p-3 rounded-xl border text-sm font-medium capitalize transition-all ${role===r ? 'bg-clay-500 text-white border-clay-500' : 'bg-white hover:bg-gray-50'}`}
+                type="button"
               >
                 {r === 'coach' ? '🎾 Coach' : r === 'student' ? '👟 Player' : '👨‍👩‍👧 Parent'}
               </button>
             ))}
           </div>
+          {role === 'coach' && (
+            <div className="bg-amber-100 border border-amber-300 p-2 rounded-lg text-xs mb-4">
+              Coach role requires KYC verification - will be pending approval.
+            </div>
+          )}
 
           <form onSubmit={handleSignup} className="space-y-4">
             <div>
@@ -86,10 +163,22 @@ function SignupContent() {
               <label className="text-sm font-medium">Password</label>
               <Input value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" type="password" required />
             </div>
+            <div>
+              <label className="text-sm font-medium">Date of Birth {role==='student' ? '*' : ''}</label>
+              <Input value={dob} onChange={e=>setDob(e.target.value)} type="date" required={role==='student'} max={new Date().toISOString().split('T')[0]} />
+              {age !== null && <div className="text-xs text-muted-foreground mt-1">{isMinor ? `Minor (${age} years) - parent email required` : `${age} years`}</div>}
+            </div>
+            {(isMinor || role==='student') && (
+              <div>
+                <label className="text-sm font-medium">Parent Email {isMinor ? '*' : '(required if under 18)'}</label>
+                <Input value={parentEmail} onChange={e=>setParentEmail(e.target.value)} placeholder="parent@example.com" type="email" required={isMinor} />
+                {isMinor && <div className="text-xs text-amber-600 mt-1">Parental consent required for minors - linkage parent_id stored</div>}
+              </div>
+            )}
 
             <div className="bg-amber-50 p-3 rounded-lg text-xs">
-              {role==='coach' && 'As coach you will be able to create paid events, set rate card, and be paid via auto-pay. SaaS $49/$99.'}
-              {role==='student' && 'As player you can find doubles partners, join clinics, and track UTR/NTRP.'}
+              {role==='coach' && 'As coach you will be able to create paid events, set rate card, and be paid via auto-pay. SaaS $49/$99. KYC required.'}
+              {role==='student' && 'As player you can find doubles partners, join clinics, and track UTR/NTRP. DOB required COPPA. If under 18 parent link enforced.'}
               {role==='parent' && 'As parent you can manage juniors, see payments, audit chats.'}
             </div>
 
@@ -105,13 +194,5 @@ function SignupContent() {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-export default function SignupPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading Vamos...</div>}>
-      <SignupContent />
-    </Suspense>
   )
 }

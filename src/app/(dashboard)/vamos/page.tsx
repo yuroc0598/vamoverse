@@ -16,20 +16,27 @@ export default function VamosPage() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
 
-  const send = async (text: string) => {
+  const send = async (text: string, confirmedActionId?: string) => {
     if (!text.trim()) return
-    setMessages(m => [...m, { role: 'user', content: text }])
+    setMessages(m => [...m, { role: 'user', content: confirmedActionId ? `Confirm: ${text}` : text }])
     setInput("")
     setLoading(true)
     try {
-      const res = await fetch('/api/vamos/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message: text }) })
+      const body = confirmedActionId ? { message: text, confirmedActionId } : { message: text }
+      const res = await fetch('/api/vamos/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
       if (!res.ok) logger.error('vamos.chat_http_error', { status: res.status })
       const data = await res.json()
-      setMessages(m => [...m, { role: 'assistant', content: data.response, requiresConfirmation: data.requires_confirmation, pendingAction: data.pending_action }])
+      setMessages(m => [...m, { role: 'assistant', content: data.response || data.error || "Got it", requiresConfirmation: data.requires_confirmation, pendingAction: data.pending_action }])
     } catch (e) {
       logger.error('vamos.chat_request_failed', { err: e })
       setMessages(m => [...m, { role: 'assistant', content: "I'm having trouble reaching Vamos right now - please try again in a moment." }])
     } finally { setLoading(false) }
+  }
+
+  const handleConfirm = async (msg: ChatMsg) => {
+    if (msg.pendingAction?.id) {
+      await send("confirm", msg.pendingAction.id)
+    }
   }
 
   return (
@@ -56,7 +63,7 @@ export default function VamosPage() {
                       <div className="text-xs font-semibold">Confirm:</div>
                       <div className="text-xs mb-2">{m.pendingAction?.summary}</div>
                       <div className="flex gap-2">
-                        <Button size="sm" className="h-7" onClick={()=>send(`CONFIRM ${JSON.stringify(m.pendingAction)} Yes`)}>✓ Yes, do it</Button>
+                        <Button size="sm" className="h-7" onClick={()=>handleConfirm(m)}>✓ Yes, do it</Button>
                         <Button size="sm" variant="outline" className="h-7" onClick={()=>setMessages(ms=>[...ms,{role:'assistant',content:"Cancelled"}])}>No</Button>
                       </div>
                     </div>

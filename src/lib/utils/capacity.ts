@@ -1,5 +1,8 @@
 // FIX H2: Capacity enforcement transactional - prevents overbooking race
 // In prod, this would be a Postgres function with FOR UPDATE SKIP LOCKED
+// Production uses SELECT ... FOR UPDATE to lock occurrence row, then COUNT,
+// then INSERT atomically. Waitlist promotion uses FOR UPDATE SKIP LOCKED
+// to avoid blocking: SELECT first waitlisted FOR UPDATE SKIP LOCKED, update.
 
 export interface RegistrationAttempt {
   occurrenceId: string
@@ -14,102 +17,93 @@ export interface RegistrationResult {
   error?: string
 }
 
-/**
- * FIX H2: Transactional registration that prevents overbooking
- * Production SQL:
- * 
- * CREATE OR REPLACE FUNCTION register_for_occurrence(
- *   p_occurrence_id uuid,
- *   p_student_id uuid,
- *   p_event_id uuid
- * ) RETURNS uuid AS $$
- * DECLARE
- *   v_capacity int;
- *   v_count int;
- *   v_registration_id uuid;
- * BEGIN
- *   -- Lock the occurrence row to serialize concurrent registrations
- *   SELECT COALESCE(capacity_override, e.capacity) INTO v_capacity
- *   FROM event_occurrences eo
- *   JOIN events e ON e.id = eo.event_id
- *   WHERE eo.id = p_occurrence_id
- *   FOR UPDATE; -- blocks other TX trying to register simultaneously
- *
- *   -- Count confirmed registrations (registered + invited)
- *   SELECT COUNT(*) INTO v_count
- *   FROM event_registrations
- *   WHERE occurrence_id = p_occurrence_id
- *   AND status IN ('registered','invited');
- *
- *   IF v_count >= v_capacity THEN
- *     -- Full, add to waitlist atomically
- *     INSERT INTO event_registrations (event_id, occurrence_id, student_id, status)
- *     VALUES (p_event_id, p_occurrence_id, p_student_id, 'waitlisted')
- *     RETURNING id INTO v_registration_id;
- *     RETURN v_registration_id; -- waitlisted
- *   ELSE
- *     -- Has space
- *     INSERT INTO event_registrations (event_id, occurrence_id, student_id, status)
- *     VALUES (p_event_id, p_occurrence_id, p_student_id, 'registered')
- *     RETURNING id INTO v_registration_id;
- *     RETURN v_registration_id;
- *   END IF;
- * END;
- * $$ LANGUAGE plpgsql;
- *
- * Waitlist promotion also needs TX:
- * - When someone cancels, SELECT first waitlisted FOR UPDATE SKIP LOCKED, update to registered
- */
+export interface MockRegistration {
+  occurrenceId: string
+  studentId: string
+  eventId: string
+  status: 'registered' | 'invited' | 'waitlisted' | 'cancelled'
+  registrationId: string
+  createdAt: string
+}
 
-// Mock implementation
+export const mockRegistrations: MockRegistration[] = []
+
+export function clearMockRegistrations() {
+  mockRegistrations.length = 0
+}
+
+export function getServerCount(occurrenceId: string): number {
+  return mockRegistrations.filter(
+    r => r.occurrenceId === occurrenceId && ['registered', 'invited'].includes(r.status)
+  ).length
+}
+
+/**
+ * Transactional registration that prevents TOCTOU overbooking.
+ * Server is source of truth: count comes from DB (mockRegistrations here),
+ * NOT from client-provided currentCount.
+ *
+ * Production SQL:
+ *   SELECT ... FOR UPDATE; SELECT COUNT(*) ...; INSERT ...
+ *   Waitlist promotion: SELECT ... FOR UPDATE SKIP LOCKED
+ *
+ * Backward compat: old signature (occurrenceId, studentId, eventId, currentCount, capacity)
+ * is still accepted but currentCount is ignored - server count wins.
+ */
 export async function registerWithCapacityCheck(
   occurrenceId: string,
   studentId: string,
   eventId: string,
-  currentCount: number,
-  capacity: number
+  capacityOrCurrentCount: number,
+  maybeCapacity?: number
 ): Promise<RegistrationResult> {
-  // Simulate row lock with check + insert atomically
-  // In real DB this is one transaction
+  let capacity: number
+  if (typeof maybeCapacity === 'number') {
+    capacity = maybeCapacity
+  } else {
+    capacity = capacityOrCurrentCount
+  }
+
+  if (!Number.isFinite(capacity) || capacity < 0) {
+    return { success: false, status: 'waitlisted', error: 'Invalid capacity' }
+  }
+
+  if (!occurrenceId || !studentId || !eventId) {
+    return { success: false, status: 'waitlisted', error: 'Missing ids' }
+  }
+
+  const existing = mockRegistrations.find(
+    r => r.occurrenceId === occurrenceId && r.studentId === studentId && ['registered', 'invited'].includes(r.status)
+  )
+  if (existing) {
+    return { success: true, status: 'registered', registrationId: existing.registrationId }
+  }
+
+  const serverCount = getServerCount(occurrenceId)
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
-  
-  if (currentCount >= capacity) {
-    // Waitlist path
-    return {
-      success: true,
+
+  if (serverCount >= capacity) {
+    const regId = `reg_wait_${uniqueSuffix}`
+    mockRegistrations.push({
+      occurrenceId,
+      studentId,
+      eventId,
       status: 'waitlisted',
-      registrationId: `reg_wait_${uniqueSuffix}`
-    }
+      registrationId: regId,
+      createdAt: new Date().toISOString(),
+    })
+    return { success: true, status: 'waitlisted', registrationId: regId }
   }
 
-  return {
-    success: true,
+  const regId = `reg_${uniqueSuffix}`
+  mockRegistrations.push({
+    occurrenceId,
+    studentId,
+    eventId,
     status: 'registered',
-    registrationId: `reg_${uniqueSuffix}`
-  }
-}
+    registrationId: regId,
+    createdAt: new Date().toISOString(),
+  })
 
-// FIX M1: Reconciled custom match model - use match_slots + invitations, not both slot columns and team A/B confusion
-export interface MatchSlot {
-  slotNumber: 1 | 2 | 3 | 4
-  team: 'A' | 'B'
-  occupantId?: string
-  status: 'empty' | 'invited' | 'occupied'
-  invitationId?: string
-}
-
-// FIX M2: Normalized conversations - pick one model
-// We choose conversations + conversation_members + messages
-export interface Conversation {
-  id: string
-  type: 'dm' | 'group' | 'coach_broadcast'
-  eventId?: string
-  occurrenceId?: string
-  coachId?: string
-  memberIds: string[]
-  createdAt: Date
-}
-
-export function getConversationMembers(conversation: Conversation, allUsers: any[]) {
-  return allUsers.filter(u => conversation.memberIds.includes(u.id))
+  return { success: true, status: 'registered', registrationId: regId }
 }

@@ -1,0 +1,39 @@
+# Local real backend for Vamoverse.
+#   docker compose up -d
+# then set in .env.local:
+#   DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse
+#   REDIS_URL=redis://localhost:6379
+#
+# Postgres auto-applies db/migrations/*.sql then db/seed.sql on first boot
+# (files in /docker-entrypoint-initdb.d run in alphabetical order).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vamoverse
+      POSTGRES_PASSWORD: vamoverse
+      POSTGRES_DB: vamoverse
+    ports:
+      - "5432:5432"
+    volumes:
+      - vamo_pgdata:/var/lib/postgresql/data
+      - ./db/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vamoverse -d vamoverse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  vamo_pgdata:

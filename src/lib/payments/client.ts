@@ -1,4 +1,7 @@
 import { PaymentType, PaymentStatus } from '../types/enums'
+import { getAutoCaptureDelayMs as getDelayMs } from './constants'
+
+export const AUTO_CAPTURE_DELAY_MINUTES_DEFAULT = 120
 
 export interface CreatePaymentParams {
   coachId: string
@@ -6,15 +9,12 @@ export interface CreatePaymentParams {
   amountCents: number
   type: PaymentType
   eventId?: string
-  occurrenceId?: string // FIX C6: attach to occurrence
+  occurrenceId?: string
   description: string
   captureMethod?: 'automatic' | 'manual'
   autoCaptureAt?: Date
-  // FIX C2: Idempotency key per review
-  idempotencyKey?: string
-  // FIX H9: Fee model
+  idempotencyKey: string
   applicationFeeCents?: number
-  // FIX H8: Customer
   stripeCustomerId?: string
 }
 
@@ -38,38 +38,36 @@ export interface PaymentClient {
   listPaymentsForStudent(studentId: string): Promise<any[]>
 }
 
-// Factory - chooses mock or stripe based on env
+// Singleton is per serverless instance - in prod idempotency handled via DB UNIQUE on idempotency_key and FOR UPDATE SKIP LOCKED
 let clientInstance: PaymentClient | null = null
 
-// Use static imports for ESM compatibility (fixes vitest require resolution)
-import { MockPaymentClient as MockClient } from './mock'
+import { MockPaymentClient as MockClient, clearMockPayments } from './mock'
 import { StripePaymentClient as StripeClient } from './stripe'
 
 export function getPaymentClient(): PaymentClient {
   if (clientInstance) return clientInstance
-
   const hasStripeKey = !!process.env.STRIPE_SECRET_KEY
-
   if (hasStripeKey) {
     clientInstance = new StripeClient()
   } else {
     clientInstance = new MockClient()
   }
-
   return clientInstance
 }
 
-// For testing: reset singleton
 export function _resetPaymentClientForTests() {
+  clientInstance = null
+  try {
+    clearMockPayments()
+  } catch {}
+}
+
+export function _resetPaymentClientInstanceForTests() {
   clientInstance = null
 }
 
-// Helper for auto-capture delay
 export function getAutoCaptureDelayMs(): number {
-  const raw = process.env.AUTO_CAPTURE_DELAY_MINUTES || '120'
-  const minutes = parseInt(raw, 10)
-  if (isNaN(minutes) || minutes <= 0) {
-    return 120 * 60 * 1000
-  }
-  return minutes * 60 * 1000
+  return getDelayMs()
 }
+
+export { getDelayMs as _getDelayMsInternal }

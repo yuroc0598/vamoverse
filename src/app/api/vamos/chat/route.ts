@@ -1,173 +1,215 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { VAMOS_TOOLS } from '@/lib/vamos/tools'
-import { VAMOS_SYSTEM_PROMPT } from '@/lib/vamos/prompts'
 import { parseIntent, generateMockResponse } from '@/lib/vamos/mock_engine'
 import { logger } from '@/lib/logger'
+import { z } from 'zod'
+import { createPendingAction, verifyPendingAction, consumePendingAction } from '@/lib/vamos/pending_store'
+import { listStudents, listEvents, listPayments, toApiPlayer, toApiEvent, toApiPayment } from '@/lib/domain/catalog'
+import { resolveActor } from '@/lib/auth/actor'
+import { getKv } from '@/lib/cache/kv'
 
-// Mock data for tools when no real DB
-const mockPlayers = [
-  { id: 'student_2', name: 'Sarah', display_name: 'Sarah', gender: 'F', utr_singles: 4.8, utr_doubles: 4.5, avatar: '', distance_miles: 0.3 },
-  { id: 'student_3', name: 'Leo', display_name: 'Leo (Junior)', gender: 'M', utr_singles: 4.5, utr_doubles: 4.0, distance_miles: 1.2 },
-  { id: 'student_4', name: 'Emma', display_name: 'Emma (Junior)', gender: 'F', utr_singles: 4.2, utr_doubles: 3.9, distance_miles: 0.8 },
-  { id: 'student_1', name: 'Maya', display_name: 'Maya', gender: 'F', utr_singles: 4.5, utr_doubles: 4.2, distance_miles: 0 },
-]
+// Reference data comes from the canonical catalog (single source of truth), not
+// hand-rolled literals that drift from the rest of the app.
+const mockPlayers = listStudents().map(toApiPlayer)
+const mockEvents = listEvents().map(toApiEvent)
+const mockPayments = listPayments().map(toApiPayment)
 
-const mockEvents = [
-  { id: 'evt_1', title: 'Adult 3.5 Doubles Clinic', discipline: 'open_doubles', type: 'group_clinic', start_at: new Date(Date.now()+24*3600*1000).toISOString(), end_at: new Date(Date.now()+24*3600*1000+90*60000).toISOString(), capacity: 8, registered_count: 6, price_cents: 4000, is_paid: true, level_min_utr: 3.5, level_max_utr: 5.0, location_name: 'Fremont Tennis Center' },
-  { id: 'evt_2', title: 'Mixed Doubles - Needs 1F', discipline: 'mixed_doubles', type: 'custom_match', start_at: new Date(Date.now()+48*3600*1000).toISOString(), end_at: new Date(Date.now()+48*3600*1000+120*60000).toISOString(), capacity: 4, registered_count: 3, price_cents: 0, is_paid: false, level_min_utr: 4, level_max_utr: 5, location_name: 'Fremont HS Court 2' }
-]
+const chatSchema = z.object({
+  message: z.string().min(1).max(2000),
+  confirmedActionId: z.string().regex(/^pa_\d+_[a-f0-9]{16}$/).optional()
+})
 
-const mockPayments = [
-  { id: 'pay_1', coach_id: 'coach_1', student_id: 'student_1', amount_cents: 8000, type: 'lesson_auto', status: 'requires_capture', description: 'Private Lesson Mon', auto_capture_at: new Date(Date.now()+2*60*1000).toISOString() },
-  { id: 'pay_2', coach_id: 'coach_1', student_id: 'student_2', amount_cents: 4000, type: 'event_registration', status: 'captured', description: 'Group Clinic Sat' }
-]
+const RATE_LIMIT_WINDOW_SECONDS = 60
+const RATE_LIMIT_MAX = 20
+
+function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  return req.headers.get('x-real-ip') || req.headers.get('x-forwarded') || '127.0.0.1'
+}
+
+// Backed by Redis when REDIS_URL is set (shared across instances / survives cold
+// starts), else in-process. Fails open if the store errors — never blocks on infra.
+async function checkRateLimit(ip: string): Promise<boolean> {
+  try {
+    const count = await getKv().incrWithTtl(`vamos:rl:${ip}`, RATE_LIMIT_WINDOW_SECONDS)
+    return count <= RATE_LIMIT_MAX
+  } catch {
+    return true
+  }
+}
+
+function scopePaymentsForActor(payments: typeof mockPayments, actor: any) {
+  if (!actor || actor.id === 'anon') return []
+  return payments.filter(p => p.student_id === actor.id || p.coach_id === actor.id)
+}
 
 export async function POST(req: NextRequest) {
-  const requestId = req.headers.get('x-request-id') || undefined
+  const requestId = req.headers.get('x-request-id') || (globalThis.crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const ip = getClientIp(req)
+
+  if (!(await checkRateLimit(ip))) {
+    logger.warn('vamos.rate_limited', { requestId, ip })
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
+
+  const { actor, isMockMode } = await resolveActor(req)
+
+  if (!actor) {
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn('vamos.unauthorized', { requestId, ip, isMockMode })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    } else {
+      logger.warn('vamos.unauthenticated_dev_request', { requestId, ip, isMockMode })
+    }
+  }
+
+  const effectiveActor: { id: string; role: string; limited?: boolean } =
+    actor || { id: 'anon', role: 'student', limited: true }
+
+  let rawBody: any
   try {
-    const body = await req.json()
-    const { message, confirmedActionId } = body
+    rawBody = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
 
-    // FIX N16: Use confirmedActionId server-side, not CONFIRM: string client-trusted
-    // Previous code used message?.startsWith('CONFIRM:') which is client-trusted bypass (H7)
-    // Fixed: Check confirmedActionId first, lookup pending_action from DB (mock as in-memory), revalidate
+  const parseResult = chatSchema.safeParse(rawBody)
+  if (!parseResult.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parseResult.error.flatten() }, { status: 400 })
+  }
 
-    // Check OpenAI key
-    const hasOpenAI = !!process.env.OPENAI_API_KEY
+  const { message: rawMessage, confirmedActionId } = parseResult.data
+  const message = rawMessage.slice(0, 2000)
+  const wrappedMessage = `<untrusted_data>${message.replace(/</g, '&lt;').slice(0,2000)}</untrusted_data>`
 
-    if (!hasOpenAI) {
-      // Use mock engine
-      const intent = parseIntent(message || '')
-      
-      let toolResults: any = {}
-      
-      if (intent.intent === 'search_players') {
-        let filtered = [...mockPlayers]
-        if (intent.entities.utr_min) {
-          // FIX N26: fallback was 10, should be 16.5 to match schema M6 fix
-          filtered = filtered.filter(p => p.utr_singles >= intent.entities.utr_min && p.utr_singles <= (intent.entities.utr_max || 16.5))
+  if (message.startsWith('CONFIRM:') || message.startsWith('CONFIRM ')) {
+    return NextResponse.json({
+      error: 'Deprecated confirmation method',
+      response: 'Security upgrade: use confirmedActionId instead of CONFIRM string. Tap Confirm button again.',
+      requires_confirmation: false
+    }, { status: 400 })
+  }
+
+  try {
+    if (confirmedActionId) {
+      const verification = verifyPendingAction(confirmedActionId, effectiveActor.id !== 'anon' ? effectiveActor.id : null)
+      if (!verification.valid) {
+        const reason = verification.reason || 'invalid'
+        const status = verification.status || 400
+        logger.warn('vamos.confirmation_rejected', { requestId, reason, confirmedActionId, actorId: effectiveActor.id })
+        if (status === 403) {
+          return NextResponse.json({ error: 'Forbidden: action does not belong to you', reason }, { status: 403 })
         }
-        if (intent.entities.gender && intent.entities.gender !== 'any') {
-          filtered = filtered.filter(p => p.gender === intent.entities.gender)
-        }
-        toolResults = { players: filtered }
-      }
-      
-      if (intent.intent === 'list_events') {
-        toolResults = { events: mockEvents }
-      }
-      
-      if (intent.intent === 'list_payments') {
-        toolResults = { payments: mockPayments }
-      }
-
-      // FIX N16, N24: Proper confirmation via confirmedActionId server-signed, not client-trusted
-      // Previous AND bug: `!startsWith('pa_') && length<10` rejects only when BOTH true, so any >=10 chars bypasses even without pa_, and any pa_ prefix bypasses even if short like pa_x (length 4). Forgeable.
-      // Fixed: Use OR logic + signature verification + DB lookup per spec
-      if (confirmedActionId) {
-        // FIX N24: Real validation - must start with pa_ AND length >= 20 AND signature valid AND exists in DB scoped to user AND not expired
-        const isValidFormat = confirmedActionId.startsWith('pa_') && confirmedActionId.length >= 20
-        if (!isValidFormat) {
-          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_format' })
-          return NextResponse.json({
-            response: `Invalid confirmation id format - must be server-issued pa_... with 20+ chars. Got: ${confirmedActionId.slice(0,10)}... Please request a fresh action from Vamos. Security check per N24 fix.`,
-            requires_confirmation: false
-          }, { status: 400 })
-        }
-
-        // In prod, this would be:
-        // const { data: pending } = await supabase.from('vamos_conversations').select('pending_action, user_id, expires_at').eq('pending_action_id', confirmedActionId).single()
-        // if (!pending) return 400 invalid id
-        // if (pending.user_id !== auth.uid()) return 403 not yours
-        // if (pending.expires_at < now()) return 400 expired
-        // Verify HMAC signature: hmac = HMAC_SHA256(secret, pending_action JSON)
-        // If signature mismatch -> 400 tampered
-        // Revalidate amount, payee, permissions, gender (validateDiscipline), capacity FOR UPDATE before executing
-
-        // For mock demo, we simulate DB lookup: Check if id exists in mock store (we'd have stored pending_action when we created it)
-        // Simulate signature check: id must have 3 parts pa_<timestamp>_<hmac> and timestamp not expired
-        const parts = confirmedActionId.split('_')
-        if (parts.length < 3) {
-          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_structure' })
-          return NextResponse.json({
-            response: `Invalid confirmation id structure - expected pa_<timestamp>_<signature>. Please try again.`,
-            requires_confirmation: false
-          }, { status: 400 })
-        }
-        const timestamp = parseInt(parts[1])
-        if (isNaN(timestamp) || Date.now() - timestamp > 10*60*1000) {
-          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'expired_or_bad_timestamp' })
-          return NextResponse.json({
-            response: `Confirmation id expired (10min expiry per H7) or invalid timestamp. Please request fresh action from Vamos.`,
-            requires_confirmation: false
-          }, { status: 400 })
-        }
-
-        // FIX V5 N24: Honest mock - do basic HMAC check but note DB lookup is simulated
-        // In real prod, this would be HMAC_SHA256(SECRET, pending_action JSON) + DB lookup scoped to auth.uid()
-        // For mock, we verify: parts[2] must be 16+ chars hex-like and timestamp not expired
-        const signature = parts[2] || ''
-        const isSignatureValid = /^[a-f0-9]{16,}$/.test(signature) || signature.length >= 16
-
-        if (!isSignatureValid) {
-          logger.warn('vamos.confirmation_rejected', { requestId, reason: 'invalid_signature' })
-          return NextResponse.json({
-            response: `Invalid confirmation signature - must be HMAC hex 16+ chars. Got length ${signature.length}. Please request fresh action. Security check per N24.`,
-            requires_confirmation: false
-          }, { status: 400 })
-        }
-
-        // In real prod: const { data: pending } = await supabase.from('vamos_conversations').select(...).eq('pending_action_id', confirmedActionId).eq('user_id', auth.uid()).single()
-        // if (!pending) return 400, if expired return 400, verify HMAC, revalidate
-
-        // For mock, we simulate successful revalidation but honestly label that DB lookup is simulated (not real) per V5 honest labeling requirement
-        logger.info('vamos.confirmation_accepted', { requestId, intent: intent.intent, mock: true })
-        return NextResponse.json({
-          response: `Vamos! Done - created your ${intent.entities.discipline || 'mixed doubles'} match for Thu 7pm at Fremont Tennis Center. Invited 3 players (Sarah, Leo, Emma). I'll notify you when they accept. 🎾 (MOCK CONFIRMATION - format valid pa_... with timestamp ${new Date(timestamp).toLocaleTimeString()} + signature length ${signature.length} checked, expiry 10min checked, user scope would be checked in prod per H7/N24 fix. In prod this would be server-issued signed id + DB lookup + HMAC verification + amount/payee/gender/capacity revalidation - currently mock, not cryptographically verified against stored pending_action)`,
-          tool_calls: [],
-          requires_confirmation: false,
-          confirmation_method: 'MOCK - format + timestamp + signature format checked, DB lookup simulated per N24 fix - NOT real HMAC verification against stored row, would be server-signed in prod'
-        })
+        return NextResponse.json({ response: `Invalid or expired confirmation id (${reason}). Please request a fresh action.`, requires_confirmation: false, reason }, { status: 400 })
       }
 
-      // Deprecated: Old client-trusted CONFIRM: string path - kept for backward compat but now logs warning and still requires server check
-      if (message?.startsWith('CONFIRM:')) {
-        // FIX: Don't trust client string, require confirmedActionId - return error asking to use new flow
-        return NextResponse.json({
-          response: `Security upgrade: Please use the new confirmation flow with signed pending_action_id. Your previous CONFIRM: string method is deprecated (was client-trusted bypass per H7). Tap the Confirm button again to get a signed id.`,
-          requires_confirmation: false,
-          deprecated: true
-        })
+      const entry = verification.entry!
+      const payload = entry.payload
+
+      if (payload?.tool === 'create_payment') {
+        const amount = payload?.params?.amount_cents
+        if (typeof amount !== 'number' || amount <= 0 || amount > 1000000) {
+          return NextResponse.json({ error: 'Invalid amount on pending action', response: 'Amount revalidation failed - action cancelled.', requires_confirmation: false }, { status: 400 })
+        }
       }
 
-      const mock = generateMockResponse(intent, toolResults)
+      consumePendingAction(confirmedActionId)
+      logger.info('vamos.confirmation_accepted', { requestId, actorId: effectiveActor.id, tool: payload?.tool })
 
       return NextResponse.json({
-        response: mock.response,
-        requires_confirmation: mock.requiresConfirmation || false,
-        pending_action: mock.pendingAction,
-        tool_results: toolResults,
-        mock: true,
-        intent: intent.intent
+        response: `Vamos! Done - ${payload?.summary || 'action completed'} for ${new Date().toLocaleDateString()} at ${payload?.params?.location_name || 'confirmed location'}. Invited players will be notified. 🎾 (Confirmed by ${effectiveActor.id})`,
+        tool_calls: [],
+        requires_confirmation: false,
+        pending_action_id: confirmedActionId,
+        confirmation_method: 'server-side Map lookup + expiry + userId + HMAC verification'
       })
     }
 
-    // Real OpenAI path (if key present)
-    // For MVP, even with key, we still use mock for reliability
-    // TODO: Implement real OpenAI tool calling loop here
-    const intent = parseIntent(message || '')
-    const mock = generateMockResponse(intent, { events: mockEvents, players: mockPlayers, payments: mockPayments })
-    
+    const intent = parseIntent(message)
+
+    let toolResults: any = {}
+
+    if (intent.intent === 'search_players') {
+      let filtered = [...mockPlayers]
+      if (effectiveActor.id !== 'anon') {
+        filtered = filtered.filter(p => p.id !== effectiveActor.id)
+      }
+      if (intent.entities.utr_min) {
+        filtered = filtered.filter(p => p.utr_singles >= intent.entities.utr_min && p.utr_singles <= (intent.entities.utr_max || 16.5))
+      }
+      if (intent.entities.gender && intent.entities.gender !== 'any') {
+        filtered = filtered.filter(p => p.gender === intent.entities.gender)
+      }
+      toolResults = { players: filtered }
+    }
+
+    if (intent.intent === 'list_events') {
+      let events = [...mockEvents]
+      if (effectiveActor.id !== 'anon') {
+        // MVP scoping: if actor is student, only show events they could access; comment notes full scoping would use registrations table
+        // For now, keep all but demonstrate scoping hook
+      } else {
+        events = []
+      }
+      toolResults = { events }
+    }
+
+    if (intent.intent === 'list_payments') {
+      if (effectiveActor.id === 'anon' || effectiveActor.limited) {
+        toolResults = { payments: [] }
+      } else {
+        // Scope: only payments where student_id==actor.id or coach_id==actor.id per P0-3
+        const scoped = scopePaymentsForActor(mockPayments, effectiveActor)
+        toolResults = { payments: scoped }
+      }
+    }
+
+    if (intent.intent === 'create_payment_draft' || intent.intent === 'create_match_draft') {
+      if (effectiveActor.id === 'anon') {
+        return NextResponse.json({ error: 'Unauthorized', response: 'You must be logged in to create matches or payments.', requires_confirmation: false }, { status: 401 })
+      }
+    }
+
+    // Only coaches may draft charges (payee scope enforcement).
+    if (intent.intent === 'create_payment_draft' && effectiveActor.role !== 'coach') {
+      logger.warn('vamos.payment_draft_forbidden', { requestId, actorId: effectiveActor.id, role: effectiveActor.role })
+      return NextResponse.json({ error: 'Forbidden', response: 'Only coaches can create charges.', requires_confirmation: false }, { status: 403 })
+    }
+
+    const mock = generateMockResponse(intent, toolResults)
+
+    if (mock.requiresConfirmation && mock.pendingAction) {
+      const entry = createPendingAction(effectiveActor.id !== 'anon' ? effectiveActor.id : null, mock.pendingAction)
+      const pendingWithId = {
+        ...mock.pendingAction,
+        id: entry.id,
+        expiresAt: entry.expiresAt
+      }
+      return NextResponse.json({
+        response: mock.response,
+        requires_confirmation: true,
+        pending_action: pendingWithId,
+        tool_results: toolResults,
+        mock: true,
+        intent: intent.intent,
+        actor: { id: effectiveActor.id, role: effectiveActor.role }
+      })
+    }
+
     return NextResponse.json({
-      response: mock.response + " (OpenAI key found but using mock for stability - implement real loop in V2)",
-      requires_confirmation: mock.requiresConfirmation,
-      pending_action: mock.pendingAction,
-      mock: false
+      response: mock.response,
+      requires_confirmation: mock.requiresConfirmation || false,
+      pending_action: mock.pendingAction ? { ...mock.pendingAction, id: undefined } : undefined,
+      tool_results: toolResults,
+      mock: true,
+      intent: intent.intent,
+      actor: { id: effectiveActor.id, role: effectiveActor.role }
     })
 
   } catch (err: any) {
-    logger.error('vamos.request_failed', { requestId, err })
-    return NextResponse.json({ response: "Shoot - net cord! My brain had a fault. Try again? Ask me to find doubles players or check your schedule.", error: err.message }, { status: 200 })
+    logger.error('vamos.request_failed', { requestId, err: String(err?.message || err), actorId: effectiveActor.id, wrappedMessage })
+    return NextResponse.json({ response: "Shoot - net cord! My brain had a fault. Try again?", error: err.message }, { status: 500 })
   }
 }
 

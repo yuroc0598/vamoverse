@@ -42,6 +42,35 @@ env -u npm_config_registry npm run dev
 # Open http://localhost:3000
 ```
 
+## 🐘 Real Backend (Postgres + Redis)
+
+The app runs on an in-memory mock by default. To exercise the **real** data path —
+where correctness is enforced by the database instead of mock code — start Postgres
+and Redis and point the app at them:
+
+```bash
+docker compose up -d            # Postgres + Redis; auto-applies db/migrations + db/seed.sql
+
+# add to .env.local
+DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse
+REDIS_URL=redis://localhost:6379
+
+npm run verify:infra            # proves atomic registration + idempotency + Redis KV
+npm run dev
+```
+
+What switching backends changes (all behind the env flag, `src/lib/db/` + `src/lib/cache/`):
+
+| Concern | Mock (default) | Real (`DATABASE_URL` / `REDIS_URL`) |
+| --- | --- | --- |
+| Registration capacity | in-memory count (single process) | `register_for_occurrence()` with `SELECT … FOR UPDATE` — **overbooking-proof under concurrency** |
+| Payment idempotency | in-memory key map | `payments.idempotency_key UNIQUE` |
+| Rate limit / webhook dedup | in-process `Map` | Redis (shared across instances, survives cold starts) |
+| Data model | `src/lib/domain/catalog.ts` | `db/migrations/0001_init.sql` (single source of truth) |
+
+The data-model source of truth is `db/migrations/0001_init.sql`; the demo catalog
+(`src/lib/domain/catalog.ts`) mirrors it and `db/seed.sql` seeds the same records.
+
 ### Demo Accounts (password: demo1234)
 
 - **Coach:** coach@demo.com — Independent coach, $80/$50/$30 rates, can create paid clinics

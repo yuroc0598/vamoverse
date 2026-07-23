@@ -1,14 +1,27 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
+function isMock() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (process.env.NODE_ENV === 'production' && (!url || !key)) {
+    return false
+  }
+  if (!url || !key) return true
+  if (url.includes('mock')) return true
+  if (process.env.NODE_ENV !== 'production' && url.includes('localhost')) return true
+  return false
+}
+
 export async function createClient() {
-  const cookieStore = cookies()
+  const cookieStore = cookies() as any
+  const maybeAwaited = cookieStore instanceof Promise ? await cookieStore : cookieStore
+  const resolvedStore = maybeAwaited as any
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!url || !key || url.includes('localhost') || url.includes('mock')) {
-    // Return mock for server as well
+  if (isMock()) {
     return {
       auth: {
         getUser: async () => ({ data: { user: null }, error: null }),
@@ -27,15 +40,18 @@ export async function createClient() {
     } as any
   }
 
-  return createServerClient(url, key, {
+  const safeUrl = url || 'https://mock.supabase.co'
+  const safeKey = key || 'mock-anon-key'
+
+  return createServerClient(safeUrl, safeKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll()
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: { name: string; value: string; options: any }[]) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+          cookiesToSet.forEach(({ name, value, options }: { name: string; value: string; options: any }) =>
+            cookieStore.set(name, value, options as any)
           )
         } catch {}
       },

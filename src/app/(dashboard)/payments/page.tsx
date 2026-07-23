@@ -1,42 +1,62 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { formatCurrency } from "@/lib/utils"
+import { formatCurrency, safeNumber, safeToLocaleString } from "@/lib/utils"
+import { getPaymentClient } from "@/lib/payments/client"
+import { listCoachPaymentsUi } from "@/lib/domain/catalog"
 
-const mockPaymentsInitial = [
-  { id: 'pay_1', coach_id: 'coach_1', student_id: 'student_3', student_name: 'Leo (Junior)', amount_cents: 8000, type: 'lesson_auto', status: 'requires_capture', description: 'Private Lesson Mon 3pm', auto_capture_at: new Date(Date.now()+2*60*1000).toISOString(), created_at: new Date().toISOString() },
-  { id: 'pay_2', coach_id: 'coach_1', student_id: 'student_1', student_name: 'Maya', amount_cents: 4000, type: 'event_registration', status: 'captured', description: 'Group Clinic Sat 9am', created_at: new Date().toISOString() },
-  { id: 'pay_3', coach_id: 'coach_1', student_id: 'student_2', student_name: 'Sarah', amount_cents: 4000, type: 'adhoc', status: 'captured', description: 'Stringing', created_at: new Date().toISOString() },
-  { id: 'pay_4', coach_id: 'coach_1', student_id: 'student_1', student_name: 'Maya', amount_cents: 4000, type: 'late_fee', status: 'pending', description: 'Late cancel <24h', created_at: new Date().toISOString() },
-]
+// Coach-facing view derived from the canonical catalog (single source of truth).
+const mockPaymentsInitial = listCoachPaymentsUi('coach_1')
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState(mockPaymentsInitial)
   const [filter, setFilter] = useState<'all'|'requires_capture'|'captured'>('all')
 
+  // Keep a ref to the latest payments so the interval reads current state without
+  // re-subscribing, and so side effects stay OUT of the setState updater (which
+  // React StrictMode double-invokes in dev -> would double toast / double capture).
+  const paymentsRef = useRef(payments)
+  useEffect(() => { paymentsRef.current = payments }, [payments])
+
   useEffect(() => {
-    // Auto-capture timer check every 5 sec for demo
+    const isDue = (p: { status: string; auto_capture_at?: string }, now: Date) => {
+      if (p.status !== 'requires_capture' || !p.auto_capture_at) return false
+      const at = new Date(p.auto_capture_at)
+      return !isNaN(at.getTime()) && at <= now
+    }
     const interval = setInterval(() => {
-      setPayments(prev => prev.map(p => {
-        if (p.status==='requires_capture' && p.auto_capture_at && new Date(p.auto_capture_at) <= new Date()) {
-          toast.success(`Auto-captured $${(p.amount_cents/100).toFixed(0)} for ${p.student_name} - Vamos!`)
-          return { ...p, status: 'captured' }
-        }
-        return p
-      }))
+      const now = new Date()
+      const toCapture = paymentsRef.current.filter(p => isDue(p, now))
+      if (toCapture.length === 0) return
+      const dueIds = new Set(toCapture.map(p => p.id))
+      // Pure updater: only maps based on precomputed ids.
+      setPayments(prev => prev.map(p => dueIds.has(p.id) ? { ...p, status: 'captured' as const } : p))
+      // Side effects run exactly once, outside the updater.
+      toCapture.forEach(cp => {
+        toast.success(`Auto-captured ${formatCurrency(safeNumber(cp.amount_cents,0))} for ${cp.student_name} - Vamos!`)
+      })
+      try {
+        const client = getPaymentClient()
+        toCapture.forEach(cp => client.capturePayment(cp.id).catch(() => {}))
+      } catch {}
+      fetch('/api/cron/capture', { method: 'POST' }).catch(() => {})
     }, 5000)
     return () => clearInterval(interval)
   }, [])
 
   const filtered = filter==='all' ? payments : payments.filter(p=>p.status===filter)
-  const totalRevenue = payments.filter(p=>p.status==='captured').reduce((s,p)=>s+p.amount_cents,0)
-  const pendingRevenue = payments.filter(p=>p.status==='requires_capture').reduce((s,p)=>s+p.amount_cents,0)
+  const totalRevenue = payments.filter(p=>p.status==='captured').reduce((s,p)=>s+safeNumber(p.amount_cents,0),0)
+  const pendingRevenue = payments.filter(p=>p.status==='requires_capture').reduce((s,p)=>s+safeNumber(p.amount_cents,0),0)
 
   const handleCapture = (id: string) => {
     setPayments(p=>p.map(x=>x.id===id ? {...x, status: 'captured'} : x))
+    try {
+      const client = getPaymentClient()
+      client.capturePayment(id).catch(()=>{})
+    } catch {}
     toast.success("Captured! Receipt sent. Vamos!")
   }
 
@@ -66,8 +86,17 @@ export default function PaymentsPage() {
             <div key={p.id} className="flex items-center justify-between p-3 border rounded-xl">
               <div>
                 <div className="font-medium text-sm">{p.student_name} • {p.description} • {p.type.replace('_',' ')}</div>
-                <div className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString()} • {p.id.slice(0,8)}</div>
-                {p.status==='requires_capture' && p.auto_capture_at && <div className="text-xs text-amber-700">Auto-captures in {Math.max(0, Math.round((new Date(p.auto_capture_at).getTime() - Date.now())/1000))}s • 2hr dispute window (2min demo)</div>}
+                <div className="text-xs text-muted-foreground">{safeToLocaleString(p.created_at)} • {p.id.slice(0,8)}</div>
+                {p.status==='requires_capture' && p.auto_capture_at && (() => {
+                  const at = new Date(p.auto_capture_at)
+                  const valid = !isNaN(at.getTime())
+                  if (!valid) {
+                    return <div className="text-xs text-amber-700">pending • 2hr dispute window (2min demo)</div>
+                  }
+                  const diff = at.getTime() - Date.now()
+                  const sec = Math.max(0, Math.round(diff / 1000))
+                  return <div className="text-xs text-amber-700">Auto-captures in {sec}s • 2hr dispute window (2min demo)</div>
+                })()}
               </div>
               <div className="text-right flex items-center gap-3">
                 <div>

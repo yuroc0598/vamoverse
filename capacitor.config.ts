@@ -1,19 +1,30 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
+const capacitorServerUrl = process.env.CAPACITOR_SERVER_URL || undefined
+const isDev = process.env.NODE_ENV !== 'production'
+
 const config: CapacitorConfig = {
   appId: 'com.vamoverse.app',
   appName: 'Vamoverse',
-  webDir: 'out',
-  server: {
-    // Livereload during dev: Mac LAN IP (Mac + iPhone must be on same WiFi)
-    url: 'http://172.24.237.7:3000',
-    cleartext: true,
-  },
+  webDir: 'out', // static export output dir when CAPACITOR_EXPORT=true
+  ...(capacitorServerUrl
+    ? {
+        server: {
+          url: capacitorServerUrl,
+          cleartext: isDev,
+        },
+      }
+    : isDev && process.env.CAPACITOR_ALLOW_LIVERELOAD === 'true'
+      ? {
+          server: {
+            url: process.env.CAPACITOR_DEV_URL,
+            cleartext: true,
+          },
+        }
+      : {}),
   ios: {
     contentInset: 'always',
-    // Enable scrolling
     scrollEnabled: true,
-    // Background color for status bar
     backgroundColor: '#ffffff',
   },
   plugins: {
