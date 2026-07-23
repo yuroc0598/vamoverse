@@ -4,10 +4,46 @@ import { logger } from '../logger'
 
 let mockSupabase: any = null
 
+// Built-in demo accounts (always available). Passwords included so login validates
+// them the same way it validates self-registered accounts.
+const DEMO_ACCOUNTS: Record<string, any> = {
+  'coach@demo.com': { id: 'coach_1', email: 'coach@demo.com', role: 'coach', display_name: 'Coach Alex', password: 'demo1234' },
+  'maya@demo.com': { id: 'student_1', email: 'maya@demo.com', role: 'student', display_name: 'Maya', password: 'demo1234' },
+  'sarah@demo.com': { id: 'student_2', email: 'sarah@demo.com', role: 'student', display_name: 'Sarah', password: 'demo1234' },
+  'dave@demo.com': { id: 'parent_1', email: 'dave@demo.com', role: 'parent', display_name: 'Dave', password: 'demo1234' },
+}
+
+// Self-registered accounts persist in localStorage so a user can sign up, log out,
+// and log back in. Keyed by lowercased email.
+const ACCOUNTS_KEY = 'vamoverse_mock_accounts'
+
+function loadAccounts(): Record<string, any> {
+  if (typeof window === 'undefined') return {}
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '{}')
+  } catch (e) {
+    logger.warn('auth.mock_accounts_parse_failed', { err: e })
+    return {}
+  }
+}
+
+function saveAccounts(accounts: Record<string, any>) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
+}
+
+const publicUser = (record: any) => ({
+  id: record.id,
+  email: record.email,
+  role: record.role,
+  display_name: record.display_name,
+  user_metadata: { role: record.role, display_name: record.display_name },
+})
+
 // Mock implementation for demo without real Supabase
 function createMockClient() {
   if (mockSupabase) return mockSupabase
-  
+
   const mockData = {
     users: [],
     events: [],
@@ -20,22 +56,38 @@ function createMockClient() {
       getUser: async () => ({ data: { user: null }, error: null }),
       getSession: async () => ({ data: { session: null }, error: null }),
       signInWithPassword: async ({ email, password }: any) => {
-        // Mock auth - accepts demo accounts
-        const demoUsers: any = {
-          'coach@demo.com': { id: 'coach_1', email: 'coach@demo.com', role: 'coach' },
-          'maya@demo.com': { id: 'student_1', email: 'maya@demo.com', role: 'student' },
-          'sarah@demo.com': { id: 'student_2', email: 'sarah@demo.com', role: 'student' },
-          'dave@demo.com': { id: 'parent_1', email: 'dave@demo.com', role: 'parent' },
+        const key = String(email || '').trim().toLowerCase()
+        // Registered accounts override demo accounts if the same email was reused.
+        const record = loadAccounts()[key] || DEMO_ACCOUNTS[key]
+        if (!record) {
+          return { data: { user: null, session: null }, error: { message: 'No account found for this email. Sign up first.' } }
         }
-        const user = demoUsers[email]
-        if (user && password === 'demo1234') {
-          return { data: { user, session: { user } }, error: null }
+        if (record.password !== password) {
+          return { data: { user: null, session: null }, error: { message: 'Incorrect password.' } }
         }
-        return { data: { user: null, session: null }, error: { message: 'Invalid demo credentials. Use coach@demo.com / demo1234 or maya@demo.com / demo1234' } }
+        const user = publicUser(record)
+        return { data: { user, session: { user } }, error: null }
       },
       signUp: async ({ email, password, options }: any) => {
-        const newUser = { id: `user_${Date.now()}`, email, role: options?.data?.role || 'student' }
-        return { data: { user: newUser, session: { user: newUser } }, error: null }
+        const key = String(email || '').trim().toLowerCase()
+        if (!key || !password) {
+          return { data: { user: null, session: null }, error: { message: 'Email and password are required.' } }
+        }
+        const accounts = loadAccounts()
+        if (accounts[key] || DEMO_ACCOUNTS[key]) {
+          return { data: { user: null, session: null }, error: { message: 'An account with this email already exists. Try logging in.' } }
+        }
+        const record = {
+          id: `user_${Date.now()}`,
+          email: key,
+          role: options?.data?.role || 'student',
+          display_name: options?.data?.display_name,
+          password,
+        }
+        accounts[key] = record
+        saveAccounts(accounts)
+        const user = publicUser(record)
+        return { data: { user, session: { user } }, error: null }
       },
       signOut: async () => ({ error: null }),
       onAuthStateChange: (cb: any) => ({ data: { subscription: { unsubscribe: () => {} } } })

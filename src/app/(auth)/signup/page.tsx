@@ -37,9 +37,10 @@ function SignupContent() {
       }
 
       if (isMockMode()) {
-        const mockUser = { id: `user_${Date.now()}`, email, role, display_name: displayName }
-        localStorage.setItem('vamoverse_mock_user', JSON.stringify(mockUser))
-        localStorage.setItem('vamoverse_mock_session', JSON.stringify({ user: mockUser }))
+        // Persist the account (done inside the mock client) and set the active
+        // session from the returned user so it matches a later login exactly.
+        localStorage.setItem('vamoverse_mock_user', JSON.stringify(data.user))
+        localStorage.setItem('vamoverse_mock_session', JSON.stringify(data.session))
       }
 
       toast.success(`Account created! Welcome to Vamoverse as ${role}`)

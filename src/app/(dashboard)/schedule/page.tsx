@@ -16,12 +16,12 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="flex justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h1 className="text-2xl font-bold">Schedule</h1>
           <p className="text-sm text-muted-foreground">Agenda + Week view • Recurring events • Timezone aware</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button variant={view==='agenda'?'default':'outline'} size="sm" onClick={()=>setView('agenda')}>Agenda</Button>
           <Button variant={view==='week'?'default':'outline'} size="sm" onClick={()=>setView('week')}>Week</Button>
         </div>

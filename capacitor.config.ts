@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'out',
   server: {
     // Livereload during dev: Mac LAN IP (Mac + iPhone must be on same WiFi)
-    url: 'http://172.24.237.7:3000',
+    url: 'http://10.0.0.138:3000',
     cleartext: true,
   },
   ios: {

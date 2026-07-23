@@ -33,12 +33,12 @@ export default function EventsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h1 className="text-2xl font-bold">Events & Clinics</h1>
           <p className="text-muted-foreground text-sm">Group clinics, custom matches, tournaments - Paid toggle, gender enforcement, auto-balance</p>
         </div>
-        <Button onClick={()=>setShowCreate(!showCreate)}>{showCreate ? 'Cancel' : '+ New Event'}</Button>
+        <Button className="shrink-0 w-full sm:w-auto" onClick={()=>setShowCreate(!showCreate)}>{showCreate ? 'Cancel' : '+ New Event'}</Button>
       </div>
 
       {showCreate && (

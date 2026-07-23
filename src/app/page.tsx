@@ -9,15 +9,15 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-clay-500 rounded-lg flex items-center justify-center text-white font-bold">V</div>
-            <span className="text-xl font-bold">Vamoverse</span>
-            <Badge variant="secondary" className="ml-2">+ Vamos AI</Badge>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 shrink-0 bg-clay-500 rounded-lg flex items-center justify-center text-white font-bold">V</div>
+            <span className="text-xl font-bold truncate">Vamoverse</span>
+            <Badge variant="secondary" className="ml-2 hidden sm:inline-flex">+ Vamos AI</Badge>
           </div>
-          <div className="flex gap-3">
-            <Link href="/login"><Button variant="ghost">Log in</Button></Link>
-            <Link href="/signup"><Button>Start Coaching</Button></Link>
+          <div className="flex gap-2 sm:gap-3 shrink-0">
+            <Link href="/login"><Button variant="ghost" size="sm" className="sm:h-10 sm:px-4">Log in</Button></Link>
+            <Link href="/signup"><Button size="sm" className="sm:h-10 sm:px-4">Start Coaching</Button></Link>
           </div>
         </div>
       </header>

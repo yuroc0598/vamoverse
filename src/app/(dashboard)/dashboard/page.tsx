@@ -14,12 +14,12 @@ export default function DashboardPage() {
   if (user?.role === 'coach') {
     return (
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
           <div>
             <h1 className="text-2xl font-bold">Vamos, {user.display_name || 'Coach'}! 🎾</h1>
             <p className="text-muted-foreground">Here's your crew today</p>
           </div>
-          <Link href="/events"><Button>Create Clinic - Vamos!</Button></Link>
+          <Link href="/events" className="shrink-0"><Button className="w-full sm:w-auto">Create Clinic - Vamos!</Button></Link>
         </div>
 
         <div className="grid md:grid-cols-4 gap-4">
@@ -69,9 +69,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader><CardTitle>Ask Vamos - Your Captain</CardTitle><CardDescription>Try these - Vamos does it with confirmation</CardDescription></CardHeader>
           <CardContent className="flex gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Find me 2 players for mixed doubles Thu 7pm UTR 4-5</Button>
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Who owes me this week?</Button>
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Reschedule Mon clinics due to rain</Button>
+            <Button variant="outline" size="sm" className="whitespace-normal h-auto text-left max-w-full" onClick={()=>window.location.href='/vamos'}>Find me 2 players for mixed doubles Thu 7pm UTR 4-5</Button>
+            <Button variant="outline" size="sm" className="whitespace-normal h-auto text-left max-w-full" onClick={()=>window.location.href='/vamos'}>Who owes me this week?</Button>
+            <Button variant="outline" size="sm" className="whitespace-normal h-auto text-left max-w-full" onClick={()=>window.location.href='/vamos'}>Reschedule Mon clinics due to rain</Button>
           </CardContent>
         </Card>
       </div>

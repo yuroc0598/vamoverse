@@ -10,10 +10,12 @@ cd "$ROOT"
 BUNDLE_ID="com.vamoverse.app"
 PORT="3000"
 
-# First connected iOS device UDID (last column of `cap run ios --list`).
+# First connected iOS device hardware UDID. Uses xctrace (reliable) instead of
+# `cap run ios --list`, whose native-run backend crashes on recent Xcode.
+# Physical-device UDIDs are 8hex-16hex; Mac/simulator UUIDs (8-4-4-4-12) won't match.
 detect_device() {
-  npx cap run ios --list 2>/dev/null \
-    | awk 'NF && $1 != "Name" && $0 !~ /----/ {print $NF; exit}'
+  xcrun xctrace list devices 2>/dev/null \
+    | grep -Eo '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}' | head -1
 }
 
 # Mac LAN IP (prefers Wi-Fi en0, falls back to first non-loopback).

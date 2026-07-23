@@ -31,6 +31,13 @@
   * {
     @apply border-border;
   }
+  html, body {
+    /* Prevent accidental horizontal scroll in the mobile WebView. `clip` (not
+       `hidden`) avoids turning body into a scroll container, so position:sticky
+       headers keep working. */
+    overflow-x: clip;
+    max-width: 100%;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
