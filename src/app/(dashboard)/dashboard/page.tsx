@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button"
 import { Calendar, DollarSign, Users, Trophy, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 
 export default function DashboardPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [stats, setStats] = useState({ sessions: 3, revenue: 420, pending: 2, students: 12 })
 
   if (user?.role === 'coach') {
@@ -69,9 +71,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader><CardTitle>Ask Vamos - Your Captain</CardTitle><CardDescription>Try these - Vamos does it with confirmation</CardDescription></CardHeader>
           <CardContent className="flex gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Find me 2 players for mixed doubles Thu 7pm UTR 4-5</Button>
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Who owes me this week?</Button>
-            <Button variant="outline" size="sm" onClick={()=>window.location.href='/vamos'}>Reschedule Mon clinics due to rain</Button>
+            <Button variant="outline" size="sm" onClick={()=>router.push('/vamos')}>Find me 2 players for mixed doubles Thu 7pm UTR 4-5</Button>
+            <Button variant="outline" size="sm" onClick={()=>router.push('/vamos')}>Who owes me this week?</Button>
+            <Button variant="outline" size="sm" onClick={()=>router.push('/vamos')}>Reschedule Mon clinics due to rain</Button>
           </CardContent>
         </Card>
       </div>

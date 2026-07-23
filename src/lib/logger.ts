@@ -1,15 +1,3 @@
-// Lightweight isomorphic logger — works in Next.js server (API routes,
-// middleware) and in the browser/Capacitor WebView. Wraps console with:
-//   - levels (debug < info < warn < error), filtered by LOG_LEVEL
-//   - structured JSON output on the server (greppable / aggregator-friendly)
-//   - human-readable output in the browser (dev console)
-//   - a redaction helper so we never dump secrets/PII into logs
-//
-// Usage:
-//   import { logger } from '@/lib/logger'
-//   logger.info('vamos.request', { intent })
-//   logger.error('cron.capture_failed', { err })
-
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 const LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -19,23 +7,16 @@ const LEVEL_WEIGHT: Record<LogLevel, number> = {
   error: 40,
 }
 
-// Server logs JSON; browser logs readable lines. `window` is undefined on the server.
 const IS_SERVER = typeof window === 'undefined'
 
 function minLevel(): LogLevel {
   const raw = (process.env.LOG_LEVEL || process.env.NEXT_PUBLIC_LOG_LEVEL || '').toLowerCase()
   if (raw in LEVEL_WEIGHT) return raw as LogLevel
-  // Default: quieter in production, chatty in dev.
   return process.env.NODE_ENV === 'production' ? 'info' : 'debug'
 }
 
-// Keys whose values should never be logged in full.
 const SENSITIVE_KEY = /(password|passwd|secret|token|authorization|api[-_]?key|client[-_]?secret|signature|cookie|card|cvc|ssn)/i
 
-/**
- * Redact secrets/PII from a value before logging. Recurses into plain objects
- * and arrays; masks values under sensitive keys and truncates long strings.
- */
 export function redact(value: unknown, depth = 0): unknown {
   if (depth > 4) return '[Object]'
   if (value == null) return value
@@ -55,10 +36,6 @@ export function redact(value: unknown, depth = 0): unknown {
   return out
 }
 
-// --- On-device log buffer -------------------------------------------------
-// Keeps the most recent entries so they can be inspected on-device — essential
-// in the iOS/Capacitor WebView where attaching a JS console is awkward. Buffer
-// lives in memory and is mirrored to localStorage so it survives a reload/crash.
 export interface LogEntry {
   level: LogLevel
   event: string
@@ -69,30 +46,47 @@ export interface LogEntry {
 const BUFFER_LIMIT = 200
 const STORAGE_KEY = 'vamoverse_logs'
 const buffer: LogEntry[] = []
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let persistedLoaded = false
 
 function loadPersisted() {
-  if (IS_SERVER || buffer.length) return
+  if (IS_SERVER || persistedLoaded) return
+  persistedLoaded = true
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) buffer.push(...(JSON.parse(raw) as LogEntry[]))
+    if (raw) {
+      const parsed = JSON.parse(raw) as LogEntry[]
+      if (Array.isArray(parsed)) {
+        const capped = parsed.slice(-BUFFER_LIMIT)
+        buffer.push(...capped)
+      }
+    }
   } catch {
-    // ignore — a corrupt/oversized buffer must never break logging itself
   }
+}
+
+function schedulePersist() {
+  if (IS_SERVER) return
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(buffer))
+    } catch {
+    }
+  }, 500)
 }
 
 function record(entry: LogEntry) {
   buffer.push(entry)
-  if (buffer.length > BUFFER_LIMIT) buffer.splice(0, buffer.length - BUFFER_LIMIT)
+  while (buffer.length > BUFFER_LIMIT) {
+    buffer.shift()
+  }
   if (!IS_SERVER) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(buffer))
-    } catch {
-      // storage full/unavailable — keep the in-memory buffer, drop persistence
-    }
+    schedulePersist()
   }
 }
 
-/** Most recent log entries (newest last), optionally filtered by minimum level. */
 export function getRecentLogs(opts?: { level?: LogLevel; limit?: number }): LogEntry[] {
   loadPersisted()
   const min = opts?.level ? LEVEL_WEIGHT[opts.level] : 0
@@ -100,14 +94,16 @@ export function getRecentLogs(opts?: { level?: LogLevel; limit?: number }): LogE
   return opts?.limit ? filtered.slice(-opts.limit) : filtered
 }
 
-/** Clear the on-device log buffer (memory + persisted copy). */
 export function clearLogs() {
   buffer.length = 0
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
   if (!IS_SERVER) {
     try {
       localStorage.removeItem(STORAGE_KEY)
     } catch {
-      // ignore
     }
   }
 }
@@ -118,13 +114,11 @@ function emit(level: LogLevel, event: string, context?: Record<string, unknown>)
   const safeContext = context ? (redact(context) as Record<string, unknown>) : undefined
   const ts = new Date().toISOString()
 
-  // Retain a copy on-device for after-the-fact inspection (browser/WebView only).
   if (!IS_SERVER) {
     loadPersisted()
     record({ level, event, ts, ...(safeContext ? { context: safeContext } : {}) })
   }
 
-  // console.error/warn map to their own streams; debug -> log for wide support.
   const sink =
     level === 'error' ? console.error : level === 'warn' ? console.warn : level === 'debug' ? console.log : console.info
 
@@ -145,14 +139,8 @@ export const logger = {
   error: (event: string, context?: Record<string, unknown>) => emit('error', event, context),
 }
 
-// Guard so double-mounts (React strict mode, fast refresh) don't stack handlers.
 let globalHandlersInstalled = false
 
-/**
- * Catch errors that escape try/catch — uncaught exceptions and unhandled promise
- * rejections — so they land in the log buffer instead of vanishing. Browser-only;
- * call once on app start.
- */
 export function installGlobalErrorHandlers() {
   if (IS_SERVER || globalHandlersInstalled) return
   globalHandlersInstalled = true
@@ -171,8 +159,12 @@ export function installGlobalErrorHandlers() {
     logger.error('window.unhandled_rejection', { reason: e.reason })
   })
 
-  // Convenience accessors for inspecting logs from a console / Safari Web
-  // Inspector while debugging on device: `__vamoLogs()` / `__vamoClearLogs()`.
-  ;(window as any).__vamoLogs = getRecentLogs
-  ;(window as any).__vamoClearLogs = clearLogs
+  const shouldExpose =
+    process.env.NEXT_PUBLIC_EXPOSE_LOGS === 'true' ||
+    (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_EXPOSE_LOGS !== 'false')
+
+  if (shouldExpose && typeof window !== 'undefined') {
+    ;(window as any).__vamoLogs = getRecentLogs
+    ;(window as any).__vamoClearLogs = clearLogs
+  }
 }

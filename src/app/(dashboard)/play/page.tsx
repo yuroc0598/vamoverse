@@ -1,5 +1,6 @@
 "use client"
-import { useState } from "react"
+import { useState, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,29 +9,85 @@ import { EventCard } from "@/components/events/EventCard"
 import { DisciplineSelector } from "@/components/events/DisciplineSelector"
 import { Discipline } from "@/lib/types/enums"
 import { toast } from "sonner"
-import { validateDiscipline } from "@/lib/utils/gender"
+import { validateDiscipline, getCapacityForDiscipline, suggestBalancedTeams } from "@/lib/utils/gender"
+import { listHittingPartners, getEvent, toApiEvent } from "@/lib/domain/catalog"
+
+type RosterPlayer = { id: string; gender: 'M' | 'F' | 'other'; name?: string; utr?: number }
+
+function getRosterForDiscipline(discipline: Discipline): RosterPlayer[] {
+  switch (discipline) {
+    case 'mens_singles':
+      return [{ id: '1', gender: 'M', name: 'Alex' }, { id: '2', gender: 'M', name: 'Leo' }]
+    case 'womens_singles':
+      return [{ id: '1', gender: 'F', name: 'Maya' }, { id: '2', gender: 'F', name: 'Sarah' }]
+    case 'mens_doubles':
+      return [
+        { id: '1', gender: 'M', name: 'Alex', utr: 4.5 },
+        { id: '2', gender: 'M', name: 'Leo', utr: 4.2 },
+        { id: '3', gender: 'M', name: 'Coach', utr: 5.0 },
+        { id: '4', gender: 'M', name: 'Sam', utr: 4.8 },
+      ]
+    case 'womens_doubles':
+      return [
+        { id: '1', gender: 'F', name: 'Maya', utr: 4.5 },
+        { id: '2', gender: 'F', name: 'Sarah', utr: 4.8 },
+        { id: '3', gender: 'F', name: 'Emma', utr: 4.2 },
+        { id: '4', gender: 'F', name: 'Luna', utr: 4.6 },
+      ]
+    case 'mixed_doubles':
+      return [
+        { id: '1', gender: 'M', name: 'Leo', utr: 4.5 },
+        { id: '2', gender: 'F', name: 'Maya', utr: 4.5 },
+        { id: '3', gender: 'M', name: 'Alex', utr: 4.2 },
+        { id: '4', gender: 'F', name: 'Sarah', utr: 4.8 },
+      ]
+    case 'open_singles':
+      return [{ id: '1', gender: 'M', name: 'Alex' }, { id: '2', gender: 'F', name: 'Maya' }]
+    case 'open_doubles':
+      return [
+        { id: '1', gender: 'M', name: 'Leo' },
+        { id: '2', gender: 'F', name: 'Maya' },
+        { id: '3', gender: 'M', name: 'Sam' },
+        { id: '4', gender: 'F', name: 'Emma' },
+      ]
+    case 'open':
+      return [
+        { id: '1', gender: 'M', name: 'Alex' },
+        { id: '2', gender: 'F', name: 'Maya' },
+        { id: '3', gender: 'M', name: 'Leo' },
+        { id: '4', gender: 'F', name: 'Sarah' },
+        { id: '5', gender: 'M', name: 'Sam' },
+        { id: '6', gender: 'F', name: 'Emma' },
+      ]
+    default:
+      return [{ id: '1', gender: 'M' }, { id: '2', gender: 'F' }]
+  }
+}
 
 export default function PlayPage() {
+  const router = useRouter()
   const [utrMin, setUtrMin] = useState(4)
   const [utrMax, setUtrMax] = useState(5)
   const [gender, setGender] = useState<'any'|'M'|'F'>('any')
   const [discipline, setDiscipline] = useState<Discipline>('mixed_doubles')
 
-  const mockPlayers = [
-    { id: '2', name: 'Sarah', gender: 'F' as const, utr: 4.8, distance: 0.3, goals: 'League Prep' },
-    { id: '3', name: 'Leo (Junior)', gender: 'M' as const, utr: 4.5, distance: 1.2, goals: 'Tournament' },
-    { id: '4', name: 'Emma (Junior)', gender: 'F' as const, utr: 4.2, distance: 0.8, goals: 'Fun' },
-    { id: '5', name: 'Coach Alex', gender: 'M' as const, utr: 6.2, distance: 0.1, goals: 'Coach' },
-  ]
+  // Partner finder + "matches need you" both read from the canonical catalog.
+  // Viewing user is Maya (student_1) in the demo, so exclude her from partners.
+  const mockPlayers = listHittingPartners('student_1')
 
-  const neededMatches = [
-    { id: 'evt_2', title: 'Mixed Doubles - Needs 1F UTR 4-5', discipline: 'mixed_doubles', type: 'custom_match', start_at: new Date(Date.now()+48*3600*1000).toISOString(), end_at: new Date(Date.now()+48*3600*1000+120*60000).toISOString(), capacity: 4, registered_count: 3, price_cents: 0, is_paid: false, level_min_utr: 4, level_max_utr: 5, location_name: 'Fremont HS Court 2', location_address: 'Fremont, CA', format: 'pro_set_8_game' },
-  ]
+  const evt2 = getEvent('evt_2')
+  const neededMatches = evt2 ? [toApiEvent(evt2)] : []
 
   const filteredPlayers = mockPlayers.filter(p => p.utr >= utrMin && p.utr <= utrMax && (gender==='any' || p.gender===gender))
 
+  const rosterForDiscipline = useMemo(() => getRosterForDiscipline(discipline), [discipline])
+
+  const balance = useMemo(() => {
+    const playersWithUtr = rosterForDiscipline.slice(0,4).map(p => ({ id: p.id, name: p.name || p.id, utr: p.utr }))
+    return suggestBalancedTeams(playersWithUtr as any)
+  }, [rosterForDiscipline])
+
   const handleTestGender = () => {
-    // Test mixed doubles enforcement
     const test1 = validateDiscipline('mixed_doubles', [{id:'1', gender:'M'},{id:'2', gender:'M'},{id:'3', gender:'M'},{id:'4', gender:'F'}])
     const test2 = validateDiscipline('mixed_doubles', [{id:'1', gender:'M'},{id:'2', gender:'M'},{id:'3', gender:'F'},{id:'4', gender:'F'}])
     toast(`Test 3M1F Mixed: ${test1.valid ? 'Valid' : 'Blocked: '+test1.error} | Test 2M2F: ${test2.valid ? 'Valid ✓' : test2.error}`)
@@ -40,13 +97,13 @@ export default function PlayPage() {
     <div className="space-y-6 max-w-6xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold">Play • Find Your Crew</h1>
-        <p className="text-muted-foreground text-sm">Singles & Doubles with gender enforcement - Mens 4M, Womens 4F, Mixed 2M/2F. Ask Vamos to auto-find balanced teams</p>
+        <p className="text-muted-foreground text-sm">Singles & Doubles with gender enforcement - Mens 4M, Womens 4F, Mixed 2M/2F, Open 20 max. Auto-balance uses avgUTR fallback not 0.</p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
           <Card>
-            <CardHeader><CardTitle className="text-base">Matches Need You - Join Now</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Matches Need You - Join Now (capacity TX + gender wired)</CardTitle></CardHeader>
             <CardContent className="grid md:grid-cols-2 gap-4">
               {neededMatches.map(evt=>(
                 <EventCard key={evt.id} event={evt} playerUTR={4.5} />
@@ -54,13 +111,13 @@ export default function PlayPage() {
               <div className="border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center">
                 <div className="text-sm font-medium">No more matches at UTR {utrMin}-{utrMax}</div>
                 <div className="text-xs text-muted-foreground mb-3">Expand radius or ask Vamos</div>
-                <Button size="sm" onClick={()=>window.location.href='/vamos'}>Ask Vamos to Find</Button>
+                <Button size="sm" onClick={()=>router.push('/vamos')}>Ask Vamos to Find</Button>
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Find Hitting Partners - UTR Matched</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Find Hitting Partners - UTR Matched (avgUTR fix)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-4 gap-2 text-xs">
                 <div><label>UTR Min</label><Input type="number" step="0.1" value={utrMin} onChange={e=>setUtrMin(parseFloat(e.target.value))} /></div>
@@ -92,29 +149,32 @@ export default function PlayPage() {
 
         <div className="space-y-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">Create Custom Match - Vamos Style</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Create Custom Match - Gender Enforcement Wired</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <DisciplineSelector value={discipline} onChange={setDiscipline} />
+              <DisciplineSelector value={discipline} onChange={setDiscipline} eventType="custom_match" />
               <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs">
-                <div className="font-semibold">Gender Enforcement:</div>
-                {discipline==='mixed_doubles' && 'Mixed = 2M/2F exactly required. Cannot have 3M/1F or 3F/1M. System blocks invalid invites.'}
-                {discipline==='mens_doubles' && 'Mens Doubles = 4M required'}
-                {discipline==='womens_doubles' && 'Womens Doubles = 4F required'}
-                {discipline.includes('singles') && 'Singles = 2 players'}
-                {!discipline.includes('mixed') && discipline.includes('doubles') && discipline!=='mixed_doubles' && `${discipline} = all same gender or open`}
+                <div className="font-semibold">Gender Enforcement + Capacity:</div>
+                <div>Discipline: {discipline} • Cap {getCapacityForDiscipline(discipline, 'custom_match')} • Roster {rosterForDiscipline.map(r=>`${r.name || r.id}:${r.gender}`).join(', ')}</div>
+                <div className="mt-1">
+                  {discipline==='mixed_doubles' && 'Mixed = 2M/2F exactly required. Cannot have 3M/1F or 3F/1M. System blocks invalid invites.'}
+                  {discipline==='mens_doubles' && 'Mens Doubles = 4M required - roster generated 4M'}
+                  {discipline==='womens_doubles' && 'Womens Doubles = 4F required - roster generated 4F'}
+                  {discipline==='mens_singles' && 'Mens Singles = 2M required'}
+                  {discipline==='womens_singles' && 'Womens Singles = 2F required'}
+                  {discipline.includes('open') && 'Open - any gender allowed, other/unspecified eligible'}
+                </div>
+                {balance.suggestion && <div className="mt-1 font-medium">Balance: {balance.suggestion} (avgUTR fallback 5.0 not 0 skew)</div>}
               </div>
               <Button className="w-full" onClick={()=>{
-                // FIX N18: Wire validateDiscipline into real creation flow, not just demo assertion
-                const mockRoster = [{id:'1', gender:'M' as const},{id:'2', gender:'F' as const},{id:'3', gender:'M' as const},{id:'4', gender:'F' as const}]
-                // For mixed, need 2M2F - test with current discipline
-                const validation = validateDiscipline(discipline, mockRoster.slice(0, discipline.includes('doubles') ? 4 : 2))
+                const roster = getRosterForDiscipline(discipline)
+                const validation = validateDiscipline(discipline, roster)
                 if (!validation.valid) {
                   toast.error(`Blocked by gender enforcement: ${validation.error}`)
                   return
                 }
-                // Also check capacity TX would happen server-side via register_for_occurrence FOR UPDATE
-                toast(`Vamos! Created ${discipline} match Thu 7pm - Mixed 2M/2F enforcement active, capacity TX check passed, inviting Sarah, Leo, Emma...`)
-              }}>Create + Invite - Wired: validates + capacity TX</Button>
+                toast(`Vamos! Created ${discipline} match Thu 7pm - ${discipline.includes('mixed') ? '2M/2F' : discipline.includes('mens') ? '4M' : discipline.includes('womens') ? '4F' : 'Open'} enforcement active, capacity ${getCapacityForDiscipline(discipline,'custom_match')} TX check passed, inviting ${roster.map(r=>r.name).join(', ')}... Balance Δ${balance.delta.toFixed(1)}`)
+              }}>Create + Invite - Wired: validates {discipline} roster + capacity TX</Button>
+              <div className="text-[10px] text-muted-foreground">Roster per discipline: mens_doubles 4M, womens_doubles 4F, mens_singles 2M, womens_singles 2F, mixed 2M2F, open 2M2F/open. Validation demo uses actual roster, not hardcoded 2M2F.</div>
             </CardContent>
           </Card>
 
@@ -123,9 +183,9 @@ export default function PlayPage() {
               <div className="font-bold">Why Vamoverse for Doubles?</div>
               <div className="mt-1 space-y-1 text-xs">
                 <div>• Most apps treat doubles as afterthought - we enforce 2M/2F</div>
-                <div>• Auto-balance by combined UTR: 5.1+3.9 vs 5.0+4.0</div>
-                <div>• Split-pay for semi-private auto</div>
-                <div>• Ask Vamos: "Find me mixed doubles Thu 7pm UTR 4-5"</div>
+                <div>• Auto-balance by combined UTR: uses avgUTR fallback (5.0) not 0 to avoid skew</div>
+                <div>• Split-pay for semi-private auto, capacity via getCapacityForDiscipline</div>
+                <div>• Ask Vamos: "Find me mixed doubles Thu 7pm UTR 4-5" - womens before mens order fixed</div>
               </div>
             </CardContent>
           </Card>

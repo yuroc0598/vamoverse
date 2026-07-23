@@ -21,24 +21,30 @@ export default function LoginPage() {
     try {
       const supabase = createClient()
       const { error, data } = await supabase.auth.signInWithPassword({ email, password })
-      
+
       if (error) {
         toast.error(error.message)
         setLoading(false)
         return
       }
 
-      // Mock mode: store user in localStorage
       if (isMockMode()) {
         localStorage.setItem('vamoverse_mock_user', JSON.stringify(data.user))
         localStorage.setItem('vamoverse_mock_session', JSON.stringify(data.session))
+        try {
+          const u = data.user as { id: string; role: string; email: string }
+          const payload = encodeURIComponent(JSON.stringify({ id: u.id, role: u.role, email: u.email }))
+          document.cookie = `vamoverse_mock_session=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+          document.cookie = `vamoverse_mock_user=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+        } catch {}
       }
 
       toast.success(`Vamos! Welcome ${email}`)
       router.push('/dashboard')
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed'
       logger.error('auth.login_failed', { err })
-      toast.error(err.message)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }

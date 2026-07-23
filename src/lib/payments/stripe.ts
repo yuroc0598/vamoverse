@@ -1,17 +1,19 @@
-// Stripe implementation - skeleton for when Stripe keys are available
 import { PaymentClient, CreatePaymentParams, PaymentIntentResult } from './client'
 import { PaymentStatus } from '../types/enums'
 import { logger } from '../logger'
 
 export class StripePaymentClient implements PaymentClient {
   async createPaymentIntent(params: CreatePaymentParams): Promise<PaymentIntentResult> {
-    // TODO: Implement real Stripe API call
-    // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-    // const pi = await stripe.paymentIntents.create({...})
-    // params carries amounts/ids but no card data; logger.redact still masks any sensitive keys.
+    if (!params.idempotencyKey) {
+      throw new Error('idempotencyKey required - generate UUID at request start')
+    }
+    if (!Number.isInteger(params.amountCents) || params.amountCents <= 0 || params.amountCents > 1_000_000) {
+      throw new Error('amountCents must be a positive integer between 1 and 1000000')
+    }
+    const idempotencyKey = params.idempotencyKey
+
     logger.warn('payments.stripe_not_implemented', { params })
-    
-    const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+    const id = `pay_${crypto.randomUUID()}`
     const fee = params.applicationFeeCents ?? Math.round(params.amountCents * 0.05)
     return {
       id,
@@ -20,7 +22,7 @@ export class StripePaymentClient implements PaymentClient {
       applicationFeeCents: fee,
       netToCoachCents: params.amountCents - fee,
       autoCaptureAt: params.autoCaptureAt,
-      idempotencyKey: params.idempotencyKey || `idem_${Date.now()}`,
+      idempotencyKey,
     } as PaymentIntentResult
   }
 

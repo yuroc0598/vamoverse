@@ -32,7 +32,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(()=>setMounted(true),[])
 
-  if (!mounted) return null
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background flex">
+        <aside className="hidden md:flex w-64 border-r bg-white flex-col">
+          <div className="p-6 border-b flex items-center gap-2">
+            <div className="w-8 h-8 bg-clay-500 rounded-lg animate-pulse" />
+            <div className="space-y-2">
+              <div className="h-4 w-20 bg-gray-200 rounded animate-pulse" />
+              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="flex-1 p-4 space-y-2">
+            {Array.from({length:6}).map((_,i)=><div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}
+          </div>
+        </aside>
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 p-4 md:p-6 animate-pulse">
+            <div className="h-8 w-1/3 bg-gray-200 rounded mb-4" />
+            <div className="h-24 bg-gray-100 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const navItems = user?.role === 'coach' ? coachNav : studentNav
 
@@ -93,16 +116,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
 
         {/* Bottom Nav Mobile */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-2">
-          {navItems.slice(0,5).map(item => {
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex overflow-x-auto scrollbar-none p-2 gap-1">
+          {navItems.map(item => {
             const active = pathname === item.href
             return (
-              <Link key={item.href} href={item.href} className={`flex flex-col items-center p-2 rounded-xl ${active ? 'text-clay-500 bg-clay-50' : 'text-muted-foreground'}`}>
+              <Link key={item.href} href={item.href} className={`flex flex-col items-center p-2 rounded-xl min-w-[64px] flex-shrink-0 ${active ? 'text-clay-500 bg-clay-50' : 'text-muted-foreground'}`}>
                 <item.icon className="w-5 h-5" />
-                <span className="text-[10px] mt-1">{item.label}</span>
+                <span className="text-[10px] mt-1 whitespace-nowrap">{item.label}</span>
               </Link>
             )
           })}
+          <Link href="/vamos" className={`flex flex-col items-center p-2 rounded-xl min-w-[64px] flex-shrink-0 ${pathname==='/vamos' ? 'text-clay-500 bg-clay-50' : 'text-muted-foreground'}`}>
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-clay-500 to-court-500" />
+            <span className="text-[10px] mt-1 whitespace-nowrap">Vamos AI</span>
+          </Link>
         </nav>
       </div>
 

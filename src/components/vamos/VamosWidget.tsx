@@ -22,34 +22,33 @@ export function VamosWidget() {
   ])
   const [loading, setLoading] = useState(false)
 
-  const send = async (text: string) => {
+  const send = async (text: string, confirmedActionId?: string) => {
     if (!text.trim()) return
-    const userMsg: Message = { role: 'user', content: text }
+    const userMsg: Message = { role: 'user', content: confirmedActionId ? `Confirm: ${text}` : text }
     setMessages(prev => [...prev, userMsg])
     setInput("")
     setLoading(true)
 
     try {
+      const body = confirmedActionId ? { message: text, confirmedActionId } : { message: text }
       const res = await fetch('/api/vamos/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify(body)
       })
       if (!res.ok) {
-        // A non-2xx is a real failure — surface it to logs instead of masking it as "mock mode".
         logger.error('vamos.chat_http_error', { status: res.status })
       }
       const data = await res.json()
 
       const assistantMsg: Message = {
         role: 'assistant',
-        content: data.response || data.message || "Got it - Vamos!",
+        content: data.response || data.message || data.error || "Got it - Vamos!",
         requiresConfirmation: data.requires_confirmation,
         pendingAction: data.pending_action
       }
       setMessages(prev => [...prev, assistantMsg])
     } catch (e) {
-      // Network/parse failure. Log it — don't disguise the error as a canned success.
       logger.error('vamos.chat_request_failed', { err: e })
       setMessages(prev => [...prev, { role: 'assistant', content: "I'm having trouble reaching Vamos right now - please try again in a moment." }])
     } finally {
@@ -57,9 +56,9 @@ export function VamosWidget() {
     }
   }
 
-  const handleConfirm = (msg: Message) => {
-    if (msg.pendingAction) {
-      send(`CONFIRM: ${JSON.stringify(msg.pendingAction)} - Yes, do it`)
+  const handleConfirm = async (msg: Message) => {
+    if (msg.pendingAction?.id) {
+      await send("confirm", msg.pendingAction.id)
     }
   }
 
