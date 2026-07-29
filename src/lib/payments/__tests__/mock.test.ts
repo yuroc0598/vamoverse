@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { MockPaymentClient } from '../mock'
+import { MockPaymentClient, clearMockPayments } from '../mock'
 
 describe('MockPaymentClient', () => {
   let client: MockPaymentClient
 
   beforeEach(() => {
+    clearMockPayments()
     client = new MockPaymentClient()
-    // Clear in-memory payments by creating new instance; mock uses module-level array but new instance shares? Actually mock uses const mockPayments at module level shared.
-    // We rely on unique IDs per test and idempotency keys to isolate.
   })
 
   it('creates payment with auto id and stripe id', async () => {
@@ -16,7 +15,8 @@ describe('MockPaymentClient', () => {
       studentId: 'stu_1',
       amountCents: 4000,
       type: 'event_registration',
-      description: 'Group Clinic'
+      description: 'Group Clinic',
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(res.id).toMatch(/^pay_/)
     expect(res.status).toBe('captured')
@@ -30,9 +30,10 @@ describe('MockPaymentClient', () => {
       studentId: 'stu_1',
       amountCents: 10000,
       type: 'adhoc',
-      description: 'Stringing'
+      description: 'Stringing',
+      idempotencyKey: crypto.randomUUID(),
     })
-    expect(res.applicationFeeCents).toBe(500) // 5%
+    expect(res.applicationFeeCents).toBe(500)
     expect(res.netToCoachCents).toBe(9500)
   })
 
@@ -43,7 +44,8 @@ describe('MockPaymentClient', () => {
       amountCents: 10000,
       type: 'adhoc',
       description: 'Custom fee',
-      applicationFeeCents: 250
+      applicationFeeCents: 250,
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(res.applicationFeeCents).toBe(250)
   })
@@ -57,7 +59,8 @@ describe('MockPaymentClient', () => {
       type: 'lesson_auto',
       description: 'Private Lesson',
       captureMethod: 'manual',
-      autoCaptureAt: future
+      autoCaptureAt: future,
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(res.status).toBe('requires_capture')
     expect(res.autoCaptureAt?.getTime()).toBe(future.getTime())
@@ -71,7 +74,7 @@ describe('MockPaymentClient', () => {
       amountCents: 5000,
       type: 'adhoc',
       description: 'Idem test',
-      idempotencyKey: key
+      idempotencyKey: key,
     })
     const p2 = await client.createPaymentIntent({
       coachId: 'c1',
@@ -79,7 +82,7 @@ describe('MockPaymentClient', () => {
       amountCents: 5000,
       type: 'adhoc',
       description: 'Idem test duplicate',
-      idempotencyKey: key
+      idempotencyKey: key,
     })
     expect(p1.id).toBe(p2.id)
     expect(p1.amountCents).toBe(p2.amountCents)
@@ -93,13 +96,14 @@ describe('MockPaymentClient', () => {
       type: 'lesson_auto',
       description: 'To capture',
       captureMethod: 'manual',
-      autoCaptureAt: new Date(Date.now() + 10000)
+      autoCaptureAt: new Date(Date.now() + 10000),
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(created.status).toBe('requires_capture')
     const cap1 = await client.capturePayment(created.id)
     expect(cap1.status).toBe('captured')
     const cap2 = await client.capturePayment(created.id)
-    expect(cap2.status).toBe('captured') // idempotent second capture
+    expect(cap2.status).toBe('captured')
   })
 
   it('refund changes status', async () => {
@@ -108,7 +112,8 @@ describe('MockPaymentClient', () => {
       studentId: 's1',
       amountCents: 4000,
       type: 'event_registration',
-      description: 'To refund'
+      description: 'To refund',
+      idempotencyKey: crypto.randomUUID(),
     })
     const refunded = await client.refundPayment(created.id)
     expect(refunded.status).toBe('refunded')
@@ -116,16 +121,14 @@ describe('MockPaymentClient', () => {
 
   it('listPaymentsForCoach filters by coach', async () => {
     const coachId = `coach_${Date.now()}_${Math.random()}`
-    await client.createPaymentIntent({ coachId, studentId: 's1', amountCents: 1000, type: 'adhoc', description: 'A' })
-    await client.createPaymentIntent({ coachId, studentId: 's2', amountCents: 2000, type: 'adhoc', description: 'B' })
+    await client.createPaymentIntent({ coachId, studentId: 's1', amountCents: 1000, type: 'adhoc', description: 'A', idempotencyKey: crypto.randomUUID() })
+    await client.createPaymentIntent({ coachId, studentId: 's2', amountCents: 2000, type: 'adhoc', description: 'B', idempotencyKey: crypto.randomUUID() })
     const list = await client.listPaymentsForCoach(coachId)
     expect(list.length).toBeGreaterThanOrEqual(2)
     expect(list.every((p: any) => p.coach_id === coachId)).toBe(true)
   })
 
   it('getPendingCaptures returns only expired requires_capture', () => {
-    // This is static method, uses in-memory + Date.now check
-    // We cannot easily test localStorage path in node, but we can test that method exists and returns array
     const pending = MockPaymentClient.getPendingCaptures()
     expect(Array.isArray(pending)).toBe(true)
   })
@@ -137,10 +140,36 @@ describe('MockPaymentClient', () => {
       amountCents: 4000,
       type: 'lesson_auto',
       description: 'Occurrence attached',
-      occurrenceId: 'occ_123'
+      occurrenceId: 'occ_123',
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(res.id).toBeTruthy()
-    // The internal mock stores occurrence_id, verify via list?
-    // Since mockPayments is private, we indirectly test via no error
+  })
+
+  it('throws if idempotencyKey missing', async () => {
+    await expect(
+      // @ts-expect-error testing missing key
+      client.createPaymentIntent({
+        coachId: 'c1',
+        studentId: 's1',
+        amountCents: 1000,
+        type: 'adhoc',
+        description: 'no key',
+      })
+    ).rejects.toThrow('idempotencyKey required')
+  })
+
+  it('rejects non-positive or non-integer amounts (no zero/negative charges)', async () => {
+    const base = {
+      coachId: 'c1',
+      studentId: 's1',
+      type: 'adhoc' as const,
+      description: 'bad amount',
+    }
+    for (const amountCents of [0, -100, 1.5, NaN, 2_000_000]) {
+      await expect(
+        client.createPaymentIntent({ ...base, amountCents, idempotencyKey: crypto.randomUUID() })
+      ).rejects.toThrow('amountCents must be a positive integer')
+    }
   })
 })

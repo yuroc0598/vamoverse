@@ -1,14 +1,20 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { hasSupabaseConfig, isDemoMode } from '@/lib/runtime/config'
+
+function isMock() {
+  return isDemoMode()
+}
 
 export async function createClient() {
-  const cookieStore = cookies()
+  const cookieStore = cookies() as any
+  const maybeAwaited = cookieStore instanceof Promise ? await cookieStore : cookieStore
+  const resolvedStore = maybeAwaited as any
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!url || !key || url.includes('localhost') || url.includes('mock')) {
-    // Return mock for server as well
+  if (isMock()) {
     return {
       auth: {
         getUser: async () => ({ data: { user: null }, error: null }),
@@ -27,15 +33,17 @@ export async function createClient() {
     } as any
   }
 
-  return createServerClient(url, key, {
+  if (!hasSupabaseConfig()) throw new Error('Supabase server client is not configured')
+
+  return createServerClient(url!, key!, {
     cookies: {
       getAll() {
-        return cookieStore.getAll()
+        return resolvedStore.getAll()
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: { name: string; value: string; options: any }[]) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+          cookiesToSet.forEach(({ name, value, options }: { name: string; value: string; options: any }) =>
+            resolvedStore.set(name, value, options as any)
           )
         } catch {}
       },

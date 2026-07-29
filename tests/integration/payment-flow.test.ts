@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { MockPaymentClient } from '@/lib/payments/mock'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { MockPaymentClient, clearMockPayments } from '@/lib/payments/mock'
 
 describe('Payment Integration Flow', () => {
+  beforeEach(() => {
+    clearMockPayments()
+  })
+
   it('full lifecycle: create manual -> auto-capture after dispute window -> captured', async () => {
     const client = new MockPaymentClient()
     const future = new Date(Date.now() + 5000)
@@ -12,16 +16,12 @@ describe('Payment Integration Flow', () => {
       type: 'lesson_auto',
       description: 'Private Lesson Mon 3pm',
       captureMethod: 'manual',
-      autoCaptureAt: future
+      autoCaptureAt: future,
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(payment.status).toBe('requires_capture')
-
-    // Simulate waiting until auto_capture_at passes - for test we force capture
-    // In prod: cron SELECT ... FOR UPDATE SKIP LOCKED WHERE auto_capture_at <= now()
     const captured = await client.capturePayment(payment.id)
     expect(captured.status).toBe('captured')
-
-    // Idempotent second capture (webhook source of truth + cron backup)
     const captured2 = await client.capturePayment(payment.id)
     expect(captured2.status).toBe('captured')
   })
@@ -34,14 +34,14 @@ describe('Payment Integration Flow', () => {
       amountCents: 4000,
       type: 'event_registration',
       description: 'Group Clinic Sat 9am',
-      captureMethod: 'automatic' // immediate
+      captureMethod: 'automatic',
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(pay.status).toBe('captured')
-    expect(pay.netToCoachCents).toBe(3800) // 4000 - 5% = 3800
+    expect(pay.netToCoachCents).toBe(3800)
   })
 
   it('split pay for semi-private with remainder handling', async () => {
-    // First payer absorbs remainder per H10 fix
     const client = new MockPaymentClient()
     const totalCents = 10000
     const split2 = Math.floor(totalCents / 2)
@@ -51,13 +51,15 @@ describe('Payment Integration Flow', () => {
       coachId: 'c1', studentId: 's1',
       amountCents: split2 + remainder,
       type: 'event_registration',
-      description: 'Semi-private split'
+      description: 'Semi-private split',
+      idempotencyKey: crypto.randomUUID(),
     })
     const p2 = await client.createPaymentIntent({
       coachId: 'c1', studentId: 's2',
       amountCents: split2,
       type: 'event_registration',
-      description: 'Semi-private split'
+      description: 'Semi-private split',
+      idempotencyKey: crypto.randomUUID(),
     })
     expect(p1.amountCents + p2.amountCents).toBe(totalCents)
   })
@@ -70,17 +72,16 @@ describe('Payment Integration Flow', () => {
       amountCents: 4000,
       type: 'adhoc',
       description: 'Stringing',
-      idempotencyKey: key
+      idempotencyKey: key,
     })
     const p2 = await client.createPaymentIntent({
       coachId: 'c1', studentId: 's1',
       amountCents: 4000,
       type: 'adhoc',
       description: 'Stringing retry',
-      idempotencyKey: key
+      idempotencyKey: key,
     })
     expect(p1.id).toBe(p2.id)
-    // Only one payment in list for that key
     const list = await client.listPaymentsForCoach('c1')
     const filtered = list.filter((p: any) => p.idempotency_key === key)
     expect(filtered.length).toBe(1)
@@ -98,7 +99,8 @@ describe('Payment Integration Flow', () => {
         coachId: 'c_fee', studentId: `s_${c.cents}`,
         amountCents: c.cents,
         type: 'event_registration',
-        description: 'Fee check'
+        description: 'Fee check',
+        idempotencyKey: crypto.randomUUID(),
       })
       expect(res.applicationFeeCents).toBe(c.fee)
       expect(res.netToCoachCents).toBe(c.cents - c.fee)

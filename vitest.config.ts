@@ -16,7 +16,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/', '.next/', 'tests/'],
+      include: ['src/lib/**/*.ts', 'src/app/api/**/route.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/__tests__/**', 'src/lib/seed.ts'],
+      thresholds: {
+        statements: 40,
+        branches: 40,
+        functions: 40,
+        lines: 40,
+      },
     },
     testTimeout: 10000,
   },

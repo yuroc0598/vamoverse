@@ -49,6 +49,18 @@ export const DISCIPLINE_ICONS: Record<Discipline, string> = {
   open: "Open"
 }
 
+export const MATCH_FORMAT_LABELS: Record<MatchFormat, string> = {
+  best_of_3_10pt_tb: "Best of 3 with 10pt TB",
+  pro_set_8_game: "Pro Set (8 games)",
+  fast4: "Fast4",
+  timed_90: "Timed 90min",
+}
+
+export const SCORING_LABELS: Record<ScoringSystem, string> = {
+  ad: "Ad",
+  no_ad: "No-Ad",
+}
+
 export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   private: "Private Lesson",
   semi_private: "Semi-Private",

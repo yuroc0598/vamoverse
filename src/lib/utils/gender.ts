@@ -103,12 +103,15 @@ export function getCapacityForDiscipline(discipline: Discipline, eventType: stri
   return 2
 }
 
-export function suggestBalancedTeams(players: {id: string, utr?: number, name: string}[]): {teamA: typeof players, teamB: typeof players, delta: number, suggestion?: string} {
+export function suggestBalancedTeams<T extends {id: string, utr?: number, name: string, gender?: 'M' | 'F' | 'other' | 'unspecified'}>(players: T[], discipline?: Discipline): {teamA: T[], teamB: T[], delta: number, suggestion?: string} {
   if (players.length !== 4) {
     return { teamA: players.slice(0,2), teamB: players.slice(2,4), delta: 0 }
   }
-  
-  // Try all combinations for 2v2 to minimize UTR delta
+
+  const definedUtrs = players.filter(p => typeof p.utr === 'number' && Number.isFinite(p.utr)).map(p => p.utr as number)
+  const avgUTR = definedUtrs.length > 0 ? definedUtrs.reduce((a,b)=>a+b,0)/definedUtrs.length : 5.0
+  const getUtr = (p: {utr?: number}) => (typeof p.utr === 'number' && Number.isFinite(p.utr) ? p.utr : avgUTR)
+
   const combinations = [
     [[0,1],[2,3]],
     [[0,2],[1,3]],
@@ -120,14 +123,21 @@ export function suggestBalancedTeams(players: {id: string, utr?: number, name: s
   for (const [aIdx, bIdx] of combinations) {
     const teamA = aIdx.map(i => players[i])
     const teamB = bIdx.map(i => players[i])
-    const utrA = teamA.reduce((sum, p) => sum + (p.utr || 0), 0)
-    const utrB = teamB.reduce((sum, p) => sum + (p.utr || 0), 0)
+    if (discipline === 'mixed_doubles') {
+      const isMixedTeam = (team: T[]) => team.filter(p => p.gender === 'M').length === 1 && team.filter(p => p.gender === 'F').length === 1
+      if (!isMixedTeam(teamA) || !isMixedTeam(teamB)) continue
+    }
+    const utrA = teamA.reduce((sum, p) => sum + getUtr(p), 0)
+    const utrB = teamB.reduce((sum, p) => sum + getUtr(p), 0)
     const delta = Math.abs(utrA - utrB)
     if (delta < best.delta) {
       best = { combo: [aIdx, bIdx], delta }
     }
   }
   
+  if (!Number.isFinite(best.delta)) {
+    return { teamA: [], teamB: [], delta: Infinity, suggestion: 'No valid team split for this discipline' }
+  }
   const teamA = best.combo[0].map(i => players[i])
   const teamB = best.combo[1].map(i => players[i])
   

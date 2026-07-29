@@ -2,11 +2,22 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useAuth } from "@/hooks/useAuth"
+import { toast } from "sonner"
 
 export default function CommunityPage() {
+  const { isMock } = useAuth()
+  if (!isMock) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardHeader><CardTitle>Community unavailable</CardTitle></CardHeader>
+        <CardContent className="text-sm text-muted-foreground">Partner discovery is disabled until relationship visibility, blocking, and junior privacy rules are enforced by the server. No demo profiles are shown in production.</CardContent>
+      </Card>
+    )
+  }
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold">Community - Your Crew</h1>
+      <h1 className="text-2xl font-bold">Community — sample profiles</h1>
       <div className="grid md:grid-cols-2 gap-4">
         {[
           { name: 'Maya', utr: '4.5', gender: 'F', role: 'Student', status: 'Good Match Δ0.3' },
@@ -25,13 +36,13 @@ export default function CommunityPage() {
               </div>
               <div className="text-right">
                 <Badge variant={s.status.includes('Good')?'success':'warning'} className="text-[10px]">{s.status}</Badge>
-                <div><Button size="sm" variant="outline" className="mt-2 h-7 text-xs">Add Partner</Button></div>
+                <div><Button size="sm" variant="outline" className="mt-2 h-7 text-xs" onClick={()=>toast.info(isMock ? 'Demo only — no partner request was sent.' : 'Partner requests are unavailable until the relationship backend is enabled.')}>Add Partner</Button></div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
-      <Card className="bg-blue-50"><CardContent className="p-4 text-sm">Parent audit: Dave sees Leo+Emma messages read-only. Junior &lt;13 cannot DM without parent approval. Coach sees all linked students.</CardContent></Card>
+      <Card className="bg-blue-50"><CardContent className="p-4 text-sm">Privacy note: parent/junior access must be enforced by the production relationship backend. This demo does not expose real messages.</CardContent></Card>
     </div>
   )
 }

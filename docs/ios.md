@@ -1,173 +1,65 @@
-# iOS Build Guide - Real iPhone Testing
+# iOS build guide
 
-Build Vamoverse as native iOS app using Capacitor. Requires Mac + Xcode + iPhone + cable.
-
-## Prep status (this Mac)
-
-Already done in this repo/checkout:
-- ✅ `.env` created (mock backend values)
-- ✅ `capacitor.config.ts` livereload URL set to `http://172.24.237.7:3000` (update if your Mac IP changes)
-- ✅ Next.js build works; web assets + config synced into `ios/App/App/public` via `npx cap copy ios`
-- ✅ Dev server verified reachable at `http://172.24.237.7:3000` (localhost + LAN both HTTP 200)
-- ✅ Fixed a broken `node_modules/.bin/next` (was a real file, not a symlink → `Cannot find module '../server/require-hook'`)
-
-Still required — MUST be done manually (need sudo / App Store, cannot be scripted here):
-- ❌ **Full Xcode** — only CommandLineTools present. Install Xcode from the App Store (~12GB), then
-  `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` and open Xcode once to accept the license.
-- ❌ **CocoaPods** — cannot install on this Mac's system Ruby 2.6 (modern CocoaPods needs Ruby ≥ 3.1) and
-  Homebrew is permission-locked. After Xcode: either fix Homebrew (`sudo chown -R $(whoami) /opt/homebrew`)
-  then `brew install cocoapods`, OR install a newer Ruby (rbenv/asdf) and `gem install cocoapods`.
-  `npm run ios:sync` runs `pod install`, so it needs `pod` on PATH.
+Vamoverse uses Capacitor as a hosted HTTPS shell. The production Next.js application and its authenticated API routes are deployed together; they are not misrepresented as an offline static export.
 
 ## Requirements
 
-- **Mac** with Xcode installed (App Store, ~12GB)
-- **iPhone** with iOS 16+ and Developer Mode enabled
-- **Apple ID** - free works for 7-day sideload (paid $99/yr for TestFlight/distribution)
-- **Cable** - Lightning/USB-C to Mac
-- Node 20+, npm
-- Mac and iPhone on same WiFi for livereload
+- Node 20.9 or newer
+- Xcode and CocoaPods
+- An Apple signing team
+- A deployed HTTPS Vamoverse origin
 
-## 1. Enable Developer Mode on iPhone
-
-1. iPhone → Settings → Privacy & Security → Developer Mode → ON → Reboot
-2. After reboot, confirm Developer Mode
-3. Connect iPhone to Mac via cable → Trust this computer on iPhone
-
-## 2. Setup Project (first time only)
+## Release build
 
 ```bash
-cd /Users/yuroc/repos/swe-bench-yuroc/vamoverse
-
-# Install deps (includes Capacitor)
-env -u npm_config_registry npm install
-
-# Init Capacitor (already done in repo, but if starting fresh)
-npm run ios:init   # creates capacitor.config.ts
-npm run ios:add    # adds ios/ folder with Xcode project
-```
-
-This creates `ios/App/` Xcode project.
-
-## 3. Build & Run on Real iPhone (Recommended: Live Reload)
-
-**Why livereload?** Vamoverse uses Next.js dynamic routes (`/events/[id]`) which require `generateStaticParams()` for static export (`output: export`). Live reload avoids this by running dev server on Mac and iOS app loads from it - perfect for real device testing.
-
-```bash
-# Get your Mac IP
-ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}'
-
-# Edit capacitor.config.ts - uncomment server.url and set to your IP:
-# server: { url: 'http://192.168.1.XX:3000', cleartext: true }
-
-# Start dev server
-npm run dev &
-# In another terminal, run iOS with livereload
-npm run ios:livereload
-# Or manually:
-# npx cap run ios --external --livereload --host=YOUR_IP
-```
-
-Alternatively, build without static export and sync:
-
-```bash
-# Regular Next.js build (server mode, not static)
-npm run ios:build
-
-# Sync to iOS
+npm ci
+npm run typecheck
+npm run lint
+npm test
 npm run ios:sync
-```
-
-For full static export (requires adding `generateStaticParams()` to dynamic routes):
-```bash
-npm run ios:build:static  # CAPACITOR_EXPORT=true next build → out/
-npm run ios:sync
-```
-Note: `out/` static export will fail until you add `generateStaticParams()` to `app/(dashboard)/events/[id]/page.tsx` and other dynamic routes.
-
-## 4. Open in Xcode
-
-```bash
 npm run ios:open
 ```
 
-Xcode opens `ios/App/App.xcworkspace` (use .xcworkspace not .xcodeproj).
+`ios:sync` performs a production Next build and then runs Capacitor with:
 
-## 5. Configure Signing in Xcode
-
-1. In Xcode left sidebar, select **App** project (blue icon)
-2. Select **App** target → **Signing & Capabilities**
-3. Team → Add Account → Sign in with your Apple ID (Xcode → Settings → Accounts → +)
-4. Select your Personal Team
-5. Bundle Identifier: `com.vamoverse.app` - must be unique, change to `com.yourname.vamoverse` if taken
-6. Xcode will auto-create provisioning profile. If error "Failed to create provisioning profile", change bundle ID.
-
-**Free account limits:** 7-day cert expiry (re-run), 3 apps max, no TestFlight. Paid dev account removes limits.
-
-## 6. Run on Real iPhone
-
-1. Top bar in Xcode → Select your iPhone as destination (not simulator)
-2. If iPhone shows "Developer Mode required", enable in Settings and reboot
-3. Product → Run (Cmd+R)
-4. First run: iPhone → Settings → General → VPN & Device Management → Apple Development → Trust
-5. App launches on iPhone
-
-## 7. Live Reload (Optional Dev Mode)
-
-For fast iteration without rebuilding:
-
-```bash
-# Get your Mac IP
-ifconfig | grep "inet " | grep -v 127.0.0.1
-
-# Edit capacitor.config.ts server.url to http://YOUR_IP:3000
-# Then:
-npm run dev -p 3000 &
-npx cap run ios --external --livereload --host=YOUR_IP
+```text
+CAPACITOR_SERVER_URL=https://vamoverse.app
 ```
 
-This runs web server on Mac and iOS app loads it - changes reflect instantly.
-
-## 8. Troubleshooting
-
-**"Untrusted Developer":** iPhone Settings → General → VPN & Device Management → Trust your Apple ID
-
-**"Developer Mode required":** Settings → Privacy & Security → Developer Mode ON → Reboot
-
-**"Failed to create provisioning profile":** Bundle ID taken - change to unique like `com.yuroc.vamoverse`
-
-**"No Team":** Xcode → Settings → Accounts → Add Apple ID
-
-**Build error "output: export not compatible with serverActions":** Our `next.config.js` handles this via `CAPACITOR=true` env - we set `output: export` only when Capacitor builds. If you see this, ensure you run `npm run ios:build` not `npm run build`
-
-**White screen on launch:** Check `out/` exists and `capacitor.config.ts` webDir is `out`. Run `npm run ios:build && npm run ios:sync` again.
-
-**API calls fail in iOS app:** Static export has no server - app uses mock mode (localStorage). Ensure `.env` has mock Supabase URLs, not real. For real backend, keep `server.url` in capacitor.config.ts pointing to deployed backend.
-
-**Node modules permission error (Operation not permitted):** On this Mac, `/tmp` builds fail with xattr permission - build from repo dir, not `/tmp`
-
-## 9. Production Build (Paid Account)
+Override that origin for staging or another deployment:
 
 ```bash
-# Archive for TestFlight/App Store
-# In Xcode: Product → Archive
-# Then Window → Organizer → Distribute App → TestFlight
+CAPACITOR_SERVER_URL=https://staging.vamoverse.example npm run ios:sync
 ```
 
-## 10. Quick Commands Reference
+Release configuration rejects cleartext `http://` server URLs. `mobile-shell/index.html` is only the offline error fallback; application pages and APIs come from the HTTPS deployment.
+
+Open `ios/App/App.xcworkspace`, choose the App target, configure Signing & Capabilities, select a physical device, and run or archive.
+
+## Local device development
+
+Connect and unlock an iPhone with Developer Mode enabled, start the Next development server, and use:
 
 ```bash
-npm run ios:build   # Build static web to out/
-npm run ios:sync    # Copy out/ to ios/App/public
-npm run ios:open    # Open Xcode
-npm run ios:dev     # Build + sync + open (all in one)
-npm run ios:livereload  # Run with livereload (needs IP in config)
+npm run ios:go
 ```
 
-## Architecture Note
+The helper detects the Mac LAN address and passes a temporary `CAPACITOR_DEV_URL` to Capacitor. It does not write a developer IP into tracked release configuration.
 
-iOS app is thin Capacitor wrapper around static Next.js export:
-- No server in iOS - uses mock mode (localStorage) by default
-- For real backend, set `server.url` to your deployed Vercel URL in `capacitor.config.ts`
-- Payments mock, Supabase mock, Vamos mock all work offline in iOS
-- Camera, push notifications, geolocation can be added via Capacitor plugins later
+Useful commands:
+
+```bash
+npm run ios:ip
+npm run ios:device
+npm run ios:logs
+npm run ios:open
+```
+
+Local cleartext networking is limited to the iOS local-network transport exception. Global arbitrary transport loads are disabled.
+
+## Release checks
+
+- Test the deployed HTTPS origin before archiving.
+- Confirm the generated native config contains the intended HTTPS server URL.
+- Test login, event registration, payments, and Vamos on a device away from the developer LAN.
+- Never archive with a local `CAPACITOR_DEV_URL`.

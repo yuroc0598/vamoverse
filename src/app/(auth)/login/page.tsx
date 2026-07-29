@@ -10,8 +10,9 @@ import { toast } from "sonner"
 import { logger } from "@/lib/logger"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("coach@demo.com")
-  const [password, setPassword] = useState("demo1234")
+  const demoMode = isMockMode()
+  const [email, setEmail] = useState(() => demoMode ? "coach@demo.com" : "")
+  const [password, setPassword] = useState(() => demoMode ? "demo1234" : "")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
@@ -21,24 +22,30 @@ export default function LoginPage() {
     try {
       const supabase = createClient()
       const { error, data } = await supabase.auth.signInWithPassword({ email, password })
-      
+
       if (error) {
         toast.error(error.message)
         setLoading(false)
         return
       }
 
-      // Mock mode: store user in localStorage
       if (isMockMode()) {
         localStorage.setItem('vamoverse_mock_user', JSON.stringify(data.user))
         localStorage.setItem('vamoverse_mock_session', JSON.stringify(data.session))
+        try {
+          const u = data.user as { id: string; role: string; email: string }
+          const payload = encodeURIComponent(JSON.stringify({ id: u.id, role: u.role, email: u.email }))
+          document.cookie = `vamoverse_mock_session=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+          document.cookie = `vamoverse_mock_user=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+        } catch {}
       }
 
       toast.success(`Vamos! Welcome ${email}`)
       router.push('/dashboard')
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed'
       logger.error('auth.login_failed', { err })
-      toast.error(err.message)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -63,13 +70,14 @@ export default function LoginPage() {
               <Input value={password} onChange={e=>setPassword(e.target.value)} placeholder="demo1234" type="password" required />
             </div>
             
-            <div className="bg-blue-50 p-3 rounded-lg text-xs space-y-1">
+            {demoMode && <div className="bg-blue-50 p-3 rounded-lg text-xs space-y-1">
               <div className="font-semibold">Demo Accounts (password: demo1234):</div>
               <div>coach@demo.com - Independent Coach</div>
               <div>maya@demo.com - Student UTR 4.5F</div>
               <div>sarah@demo.com - Student UTR 4.8F</div>
+              <div>leo@demo.com - Student UTR 4.5M</div>
               <div>dave@demo.com - Parent of juniors</div>
-            </div>
+            </div>}
 
             <Button type="submit" className="w-full" disabled={loading}>{loading ? 'Logging in...' : 'Log in - Vamos!'}</Button>
           </form>

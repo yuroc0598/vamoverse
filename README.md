@@ -6,22 +6,22 @@ Vamoverse is the OS for independent tennis coaches and their community. Built fo
 
 > **Tennis first, racquet sports next (Pickleball, Padel, Squash). US only for V1.**
 
-## ✨ What It Does
+## ✨ What Is Implemented
 
-- **Scheduling that gets doubles:** Private (1:1), Semi-Private (1:2-4), Group Clinics (5-12), Custom Matches. Gender enforcement: Mens Doubles = 4M, Womens Doubles = 4F, **Mixed Doubles = 2M/2F exactly** — blocks 3M/1F.
-- **Paid Events + Auto-Pay:** Toggle Free/Paid when creating event. Student pays at registration. Lessons auto-pay after coach marks completed with 2hr dispute window (2min demo).
-- **Vamos AI — Your Captain:** Ask Vamos: “Find me mixed doubles Thu 7pm UTR 4-5 near Fremont” or “Who owes me?” — tool calling with confirmation.
-- **Social, but safe:** Coach broadcast, coach-student DM if linked, student-student DM only after Hitting Partner accepted. Parent audit for juniors (<18), parent CC.
+- **Events and registration:** Approved coaches can persist events. Free registration is server-authoritative and transactionally enforces capacity, rating, discipline, duplicates, and waitlisting. Mixed doubles enforces **2M/2F** for live roster spots.
+- **Payment reconciliation:** Existing Stripe PaymentIntents can be captured and reconciled by signed webhooks. Checkout/payment creation is not enabled; paid registration refuses entry until an exact captured payment exists.
+- **Vamos demo rules engine:** Local demo mode supports user-bound, one-time confirmations and coach-only custom-match creation. It is intentionally unavailable in production until real data tools replace the demo catalog.
+- **Honest feature boundaries:** Schedule, partner discovery, family cards, and messaging are labeled local demos. Their fixtures are hidden and their writes are disabled in production.
 - **Ratings:** Manual UTR Singles/Doubles 1-16.5, NTRP 1.0-7.0, WTN 40-1, self-reported unverified for V1. Good Match / Stretch / Mismatch badges + auto-balance doubles teams by combined UTR.
 - **Location:** Google Places pin for every event (court booking out of scope V1).
 
 ## 🏗️ Tech
 
-- **Frontend:** Next.js 14 App Router, TypeScript, Tailwind, shadcn/ui
-- **Backend (mock-first):** Supabase (Postgres + Auth + Realtime) with mock fallback — works without real keys
-- **Payments:** Stripe Connect Express abstracted via `PaymentClient` interface — mock implementation by default (localStorage), auto-capture timer 2min demo for 2hr real, idempotency_key + application_fee + customer model
-- **AI:** OpenAI-compatible tool calling — `src/lib/vamos/` + mock_engine regex fallback, confirmation via server-signed `pending_action_id` with expiry
-- **Mobile:** Responsive web, Capacitor-ready wrapper planned
+- **Frontend:** Next.js 16 App Router, React 19, TypeScript, Tailwind, shadcn/ui
+- **Backend:** Supabase Auth plus Postgres/Redis repositories; explicit local demo mode is unavailable in production
+- **Payments:** Official Stripe server SDK, verified/deduplicated webhooks, database-backed capture claims and retries; demo mode never moves money
+- **Automation:** Rules-based Vamos workflow with user-bound, expiring, one-time, database-backed confirmations
+- **Mobile:** Responsive web in a Capacitor hosted-HTTPS shell; `mobile-shell/` is an offline fallback only
 
 ## 🚀 Quick Start (No Keys Needed - Mock Mode)
 
@@ -42,6 +42,36 @@ env -u npm_config_registry npm run dev
 # Open http://localhost:3000
 ```
 
+## 🐘 Real Backend (Postgres + Redis)
+
+The explicit demo UI always uses its in-memory catalog, even if infrastructure URLs
+are present. To exercise the **real** repository path independently, start Postgres
+and Redis and run the infrastructure verifier:
+
+```bash
+docker compose up -d            # Postgres + Redis; auto-applies db/migrations + db/seed.sql
+
+# add to .env.local
+DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse
+REDIS_URL=redis://localhost:6379
+
+npm run verify:infra            # proves atomic registration + idempotency + Redis KV
+```
+
+Production uses these backends when demo mode is off. The CI verifier exercises the
+same repository and KV implementations without requiring a local Supabase deployment:
+
+| Concern | Mock (default) | Real (`DATABASE_URL` / `REDIS_URL`) |
+| --- | --- | --- |
+| Registration capacity | in-memory count (single process) | `register_for_occurrence()` with `SELECT … FOR UPDATE` — **overbooking-proof under concurrency** |
+| Payment idempotency | in-memory key map | `payments.idempotency_key UNIQUE` |
+| Rate limit / pending confirmations | in-process `Map` | Redis rate limits + Postgres confirmations |
+| Webhook dedup | not processed without live config | Postgres `stripe_events` unique key |
+| Data model | `src/lib/domain/catalog.ts` | `db/migrations/0001_init.sql` (single source of truth) |
+
+The data-model source of truth is `db/migrations/0001_init.sql`; the demo catalog
+(`src/lib/domain/catalog.ts`) mirrors it and `db/seed.sql` seeds the same records.
+
 ### Demo Accounts (password: demo1234)
 
 - **Coach:** coach@demo.com — Independent coach, $80/$50/$30 rates, can create paid clinics
@@ -49,16 +79,16 @@ env -u npm_config_registry npm run dev
 - **Student:** sarah@demo.com — UTR 4.8F
 - **Parent:** dave@demo.com — Parent of 2 juniors (Leo, Emma)
 
-## 🧩 Core Flows
+## 🧩 Current Core Flows
 
-**Coach creates paid group clinic:**
-Create Event → Type Group Clinic → Discipline Open Doubles → UTR 3.5-5 → Sat 9am weekly recurring → Capacity 8 → Paid $40 → Location Fremont Tennis Center → Publish → Students get push → Register + pay at registration
+**Coach creates an event:**
+Create Event → choose discipline/type/capacity/UTR/time/location → server validates coach role and fields → event + occurrence commit atomically → list refreshes. Push notifications and recurrence editing are not implemented.
 
-**Student finds doubles via Vamos:**
-Play → Chat with Vamos: “mixed doubles tomorrow 7pm need 2 more, UTR 4-5” → Vamos searches + suggests Sarah 4.8F, Leo 4.5M, Emma 4.2F → Create custom match with 4 slots → Invite → Accept → Confirmed
+**Student registers for a free event:**
+Open event → server resolves the authenticated player → transaction locks the occurrence → eligibility/capacity/duplicate checks run → registration or waitlist result returns.
 
-**Auto-pay:**
-Coach marks private lesson Completed → Payment requires_capture with auto_capture_at = now+2h (2min demo) → Student sees “Auto-pay in 1h 45m” → Dispute window → Cron captures via row locking `FOR UPDATE SKIP LOCKED` + webhook as source of truth (mock uses setInterval localStorage for demo)
+**Existing manual-capture payment:**
+Coach opens Payments → server atomically claims the coach-owned row → Stripe capture runs outside the database transaction → webhook/database state reconciles the result. No browser timer invents a capture.
 
 ## 📁 Project Structure
 
@@ -69,22 +99,22 @@ src/
     (auth)/login,signup - Role selector coach/student/parent
     (dashboard)/dashboard - Role-based
       events/ - Events list + [id] detail + registration, gender enforcement Mixed 2M/2F
-      play/ - Doubles discovery + Hitting Partners search
-      payments/ - Mock payments with countdown
-      messages/ - Chat with permission matrix
+      play/ - Explicit local roster/eligibility preview; production partner search disabled
+      payments/ - Server payment ledger (read-only sample ledger in demo)
+      messages/ - Explicit device-only demo; production delivery stays disabled until permission storage is enabled
       community/ - Player directory UTR filtered
-      vamos/ - Full AI chat page
+      vamos/ - Demo-only rules chat page
     api/
-      vamos/chat - Tool calling with mock fallback
-      payments/webhook - Signature verification + dedup doc
-      cron/capture - Row locking prod SQL doc
+      vamos/chat - Demo rules/confirmation workflow; production fails closed
+      payments/webhook - Stripe signature verification + transactional database dedup/state transitions
+      cron/capture - Bounded payment claims, Stripe capture, retry/backoff
   components/
     ui/ - shadcn
     events/DisciplineSelector - Gender icons, capacity auto
     rating/CompatibilityBadge - Good/Stretch/Mismatch
     vamos/VamosWidget - Floating chat bubble
   lib/
-    supabase/ - client with mock fallback
+    supabase/ - explicit development demo client or real Supabase client
     payments/ - client interface + mock with idempotency dedup + fee model
     vamos/ - tools, prompts (UTR 1-16.5), mock_engine regex
     utils/
@@ -97,13 +127,9 @@ vamoverse/
 
 ## 🔒 Security / Privacy Notes (Prod Gate)
 
-This is **MOCK DEMO** solid, but not production-safe as described - remaining gap is honestly tracked:
+Production fails closed unless Supabase Auth, Postgres, and Redis are configured. Stripe endpoints separately require their server and webhook secrets. Demo identities/cookies are accepted only outside production.
 
-- RLS: Design exists with security definer helpers for recursion fix, safe views for PII (no home_lat/lng/address for minors, no stripe_account_id in base table discovery), but running app uses mock Supabase localStorage no RLS executes - needs real Supabase project + RLS integration test
-- Payments: Mock idempotency dedup + status-guarded capture correct, but authoritative path (real Stripe client, cron with row locking execution, webhook signature verification) is stub with SQL in comments - live demo relies on client setInterval which is original defect but acceptable if labeled mock
-- COPPA: Spec requires DOB required fail-closed + parental_consents table, mock signup trusts client role - spec resolved, code not enforced in mock
-- Vamos: Confirmation now uses server-signed pending_action_id format `pa_<timestamp>_<signature>` with timestamp expiry + signature format check, honest MOCK labeling (not claimed signature verified), DB lookup simulated - prod needs HMAC + DB lookup scoped to auth.uid()
-- No test runner for GENDER_TEST_CASES, no Sentry, medical_notes plaintext - V2 backlog
+Deployment requires configuring the real providers, running migrations, provisioning approved roles in Supabase `app_metadata`, adding centralized telemetry, and completing hosted HTTPS/iOS signing. Product work still remains for payment/checkout creation, relationship-scoped messaging and parent access, production partner search/Vamos tools, schedule queries, and end-to-end browser/native release tests. Paid registration returns payment-required until a captured payment row exists; it never claims a demo charge succeeded.
 
 See `vamoverse/agent.md` for full PRD.
 
@@ -113,6 +139,6 @@ MIT - Built for learning + demo. Not affiliated with USTA/UTR.
 
 ## 🙏 Credits
 
-Built with Next.js, Supabase, Stripe mock, and Vamos AI (OpenAI compatible).
+Built with Next.js, Supabase, Stripe, Postgres, Redis, and Capacitor.
 
 Vamos Together! 🎾

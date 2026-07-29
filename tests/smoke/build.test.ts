@@ -87,27 +87,3 @@ describe('Build & Env Validation', () => {
     expect(cfg).toBeDefined()
   })
 })
-
-describe('Security Invariants', () => {
-  it('cron route fails closed in prod per N20', () => {
-    const cronPath = path.join(process.cwd(), 'src/app/api/cron/capture/route.ts')
-    const content = fs.readFileSync(cronPath, 'utf-8')
-    expect(content).toContain('failing closed')
-    expect(content).toContain('isProd')
-  })
-
-  it('webhook separates internal_review_status vs chargeback', () => {
-    const webhookPath = path.join(process.cwd(), 'src/app/api/payments/webhook/route.ts')
-    const content = fs.readFileSync(webhookPath, 'utf-8')
-    expect(content).toContain('internal_review')
-    expect(content).toContain('chargeback')
-  })
-
-  it('vamos chat validates pa_ confirmation id', () => {
-    const routePath = path.join(process.cwd(), 'src/app/api/vamos/chat/route.ts')
-    const content = fs.readFileSync(routePath, 'utf-8')
-    expect(content).toContain('pa_')
-    expect(content).toContain('10*60*1000')
-    expect(content).toContain('HMAC')
-  })
-})

@@ -1,35 +1,99 @@
 "use client"
-import { useState, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { createClient, isMockMode } from "@/lib/supabase/client"
+import { createClient, isMockMode, ALLOWED_ROLES } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { logger } from "@/lib/logger"
 
-function SignupContent() {
-  const search = useSearchParams()
-  const initialRole = (search.get('role') as any) || 'student'
-  const [role, setRole] = useState<'coach'|'student'|'parent'>(initialRole)
+type AllowedRole = typeof ALLOWED_ROLES[number]
+const ALLOWED_SET = new Set<string>(ALLOWED_ROLES)
+
+function calcAge(dobStr: string): number | null {
+  if (!dobStr) return null
+  const d = new Date(dobStr)
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - d.getFullYear()
+  const m = now.getMonth() - d.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--
+  return age
+}
+
+export default function SignupPage() {
+  const demoMode = isMockMode()
+  const initialRole: AllowedRole = 'student'
+  const [role, setRole] = useState<AllowedRole>(initialRole)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [displayName, setDisplayName] = useState("")
+  const [dob, setDob] = useState("")
+  const [parentEmail, setParentEmail] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  const age = calcAge(dob)
+  const isMinor = age !== null && age < 18
+
+  const handleRoleChange = (r: string) => {
+    if (!ALLOWED_SET.has(r)) {
+      setRole('student')
+      return
+    }
+    setRole(r as AllowedRole)
+  }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
+      if (!ALLOWED_SET.has(role)) {
+        toast.error("Invalid role")
+        setLoading(false)
+        return
+      }
+
+      if (role === 'student' && !dob) {
+        toast.error("Date of birth required for players (COPPA)")
+        setLoading(false)
+        return
+      }
+      if (dob) {
+        const parsed = calcAge(dob)
+        if (parsed === null) {
+          toast.error("Invalid date of birth")
+          setLoading(false)
+          return
+        }
+      }
+      if (isMinor && !parentEmail) {
+        toast.error("Parent email required for minors (under 18)")
+        setLoading(false)
+        return
+      }
+      if (parentEmail && !parentEmail.includes('@')) {
+        toast.error("Invalid parent email")
+        setLoading(false)
+        return
+      }
+
       const supabase = createClient()
+      const safeRole: AllowedRole = ALLOWED_SET.has(role) ? role : 'student'
       const { error, data } = await supabase.auth.signUp({
         email, password,
-        options: { data: { role, display_name: displayName } }
+        options: { data: {
+          role: demoMode ? safeRole : undefined,
+          requested_role: safeRole,
+          display_name: displayName,
+          dob: dob || undefined,
+          parent_email: parentEmail || undefined,
+        } }
       })
-      
+
       if (error) {
         toast.error(error.message)
         setLoading(false)
@@ -37,17 +101,26 @@ function SignupContent() {
       }
 
       if (isMockMode()) {
-        // Persist the account (done inside the mock client) and set the active
-        // session from the returned user so it matches a later login exactly.
-        localStorage.setItem('vamoverse_mock_user', JSON.stringify(data.user))
+        const mockUser = data.user
+        localStorage.setItem('vamoverse_mock_user', JSON.stringify(mockUser))
         localStorage.setItem('vamoverse_mock_session', JSON.stringify(data.session))
+        try {
+          const payload = encodeURIComponent(JSON.stringify({ id: mockUser.id, role: mockUser.role, email: mockUser.email }))
+          document.cookie = `vamoverse_mock_session=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+          document.cookie = `vamoverse_mock_user=${payload}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+        } catch {}
       }
 
-      toast.success(`Account created! Welcome to Vamoverse as ${role}`)
+      toast.success(demoMode
+        ? `Demo account created as ${role}. Data remains on this device/session.`
+        : role === 'student'
+          ? 'Account created. Check your email if confirmation is required.'
+          : `${role} access was requested. Your account remains a player until staff verification is complete.`)
       router.push('/dashboard')
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Signup failed'
       logger.error('auth.signup_failed', { err })
-      toast.error(err.message)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -63,16 +136,22 @@ function SignupContent() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2 mb-6">
-            {(['coach','student','parent'] as const).map(r => (
+            {(ALLOWED_ROLES as readonly AllowedRole[]).map(r => (
               <button
                 key={r}
-                onClick={()=>setRole(r)}
+                onClick={()=>handleRoleChange(r)}
                 className={`flex-1 p-3 rounded-xl border text-sm font-medium capitalize transition-all ${role===r ? 'bg-clay-500 text-white border-clay-500' : 'bg-white hover:bg-gray-50'}`}
+                type="button"
               >
                 {r === 'coach' ? '🎾 Coach' : r === 'student' ? '👟 Player' : '👨‍👩‍👧 Parent'}
               </button>
             ))}
           </div>
+          {role === 'coach' && (
+            <div className="bg-amber-100 border border-amber-300 p-2 rounded-lg text-xs mb-4">
+              {demoMode ? 'Demo coach role only — no real KYC or payment access.' : 'Coach access is a request only and requires staff verification.'}
+            </div>
+          )}
 
           <form onSubmit={handleSignup} className="space-y-4">
             <div>
@@ -87,11 +166,23 @@ function SignupContent() {
               <label className="text-sm font-medium">Password</label>
               <Input value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" type="password" required />
             </div>
+            <div>
+              <label className="text-sm font-medium">Date of Birth {role==='student' ? '*' : ''}</label>
+              <Input value={dob} onChange={e=>setDob(e.target.value)} type="date" required={role==='student'} max={new Date().toISOString().split('T')[0]} />
+              {age !== null && <div className="text-xs text-muted-foreground mt-1">{isMinor ? `Minor (${age} years) - parent email required` : `${age} years`}</div>}
+            </div>
+            {(isMinor || role==='student') && (
+              <div>
+                <label className="text-sm font-medium">Parent Email {isMinor ? '*' : '(required if under 18)'}</label>
+                <Input value={parentEmail} onChange={e=>setParentEmail(e.target.value)} placeholder="parent@example.com" type="email" required={isMinor} />
+                {isMinor && <div className="text-xs text-amber-600 mt-1">A parent request is recorded, but relationship access is not granted until verified.</div>}
+              </div>
+            )}
 
             <div className="bg-amber-50 p-3 rounded-lg text-xs">
-              {role==='coach' && 'As coach you will be able to create paid events, set rate card, and be paid via auto-pay. SaaS $49/$99.'}
-              {role==='student' && 'As player you can find doubles partners, join clinics, and track UTR/NTRP.'}
-              {role==='parent' && 'As parent you can manage juniors, see payments, audit chats.'}
+              {role==='coach' && (demoMode ? 'Demo coach tools use sample data and never move money.' : 'Coach access requires staff approval; selecting this option does not grant coach permissions.')}
+              {role==='student' && 'As player you can find doubles partners, join clinics, and track UTR/NTRP. DOB required COPPA. If under 18 parent link enforced.'}
+              {role==='parent' && (demoMode ? 'The demo shows sample family cards only; no real junior data is exposed.' : 'Parent access requires a verified relationship and is not enabled in this build.')}
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>{loading ? 'Creating...' : `Sign up as ${role} - Vamos!`}</Button>
@@ -101,18 +192,10 @@ function SignupContent() {
             Have account? <Link href="/login" className="text-clay-500 font-medium">Log in</Link>
           </div>
           <div className="mt-2 text-center">
-            <Badge variant="outline" className="text-xs">Mock mode - no real email needed</Badge>
+            <Badge variant="outline" className="text-xs">{demoMode ? 'Demo mode — no real email needed' : 'Role requests do not grant privileged access'}</Badge>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-export default function SignupPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading Vamos...</div>}>
-      <SignupContent />
-    </Suspense>
   )
 }

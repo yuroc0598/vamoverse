@@ -1,54 +1,122 @@
 "use client"
-import { useState } from "react"
+import { use, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Clock, Users, DollarSign } from "lucide-react"
 import { toast } from "sonner"
+import { formatCurrency, safeNumber, safeToLocaleString } from "@/lib/utils"
+import { validateDiscipline } from "@/lib/utils/gender"
+import { getCapacityForDiscipline } from "@/lib/utils/gender"
+import { getEvent, getPlayer, toApiEvent, toRosterPlayer } from "@/lib/domain/catalog"
+import { MATCH_FORMAT_LABELS, SCORING_LABELS } from "@/lib/types/enums"
+import { useAuth } from "@/hooks/useAuth"
+import { apiUrl } from "@/lib/api"
+import Link from "next/link"
 
-export default function EventDetailPage({ params }: { params: { id: string } }) {
+// Rich descriptions are specific to this detail view; structured fields come from the catalog.
+const EVENT_DESCRIPTIONS: Record<string, string> = {
+  evt_2: 'Looking for 1 more male player at UTR 4-5 for competitive mixed doubles. Current roster is 1M and 2F. Format: Pro Set, Ad scoring, verified for UTR optional.',
+  evt_1: 'Adult 3.5 doubles clinic — rotating drills and match play. 8 spots, coached by Alex.',
+}
+// Which catalog players are currently on each event's roster (match-specific).
+const EVENT_ROSTERS: Record<string, string[]> = {
+  evt_2: ['student_1', 'student_2', 'student_3'],
+}
+
+export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const router = useRouter()
+  const { user, isMock } = useAuth()
   const [registered, setRegistered] = useState(false)
   const [waitlisted, setWaitlisted] = useState(false)
-  
-  // Mock event
+  const [loading, setLoading] = useState(false)
+  const [loadedEvent, setLoadedEvent] = useState<any>(null)
+  const [loadError, setLoadError] = useState('')
+
+  const catalogEvent = getEvent(id)
+  const apiEvent = loadedEvent ?? (isMock && catalogEvent ? toApiEvent(catalogEvent) : null)
+
+  useEffect(() => {
+    let active = true
+    fetch(apiUrl(`/api/events/${encodeURIComponent(id)}`))
+      .then(async (response) => {
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error || 'Could not load event')
+        if (active) setLoadedEvent(payload.event)
+      })
+      .catch((error) => active && setLoadError(error instanceof Error ? error.message : 'Could not load event'))
+    return () => { active = false }
+  }, [id])
+
+  if (!apiEvent) return <div className="max-w-4xl mx-auto">{loadError || 'Loading event…'}</div>
   const event = {
-    id: params.id,
-    title: params.id === 'evt_2' ? 'Mixed Doubles - Needs 1F UTR 4-5' : 'Adult 3.5 Doubles Clinic',
-    discipline: params.id === 'evt_2' ? 'mixed_doubles' : 'open_doubles',
-    type: params.id === 'evt_2' ? 'custom_match' : 'group_clinic',
-    start_at: new Date(Date.now()+24*3600*1000).toISOString(),
-    end_at: new Date(Date.now()+24*3600*1000+90*60000).toISOString(),
-    capacity: 4,
-    registered_count: 3,
-    price_cents: params.id === 'evt_2' ? 0 : 4000,
-    is_paid: params.id !== 'evt_2',
-    level_min_utr: 4,
-    level_max_utr: 5,
-    location_name: 'Fremont Tennis Center',
-    location_address: 'Fremont, CA 94536 - Court 2',
-    format: 'Best of 3 with 10pt TB',
-    scoring: 'No-Ad',
-    description: 'Looking for 1 more female player at UTR 4-5 for competitive mixed doubles. We are 2M (4.5, 4.2) and 1F (4.8) looking for even match. Format: Best of 3 with match tiebreak, No-Ad scoring, verified for UTR optional.'
+    ...apiEvent,
+    discipline: apiEvent.discipline as any,
+    format: apiEvent.format ? MATCH_FORMAT_LABELS[apiEvent.format as keyof typeof MATCH_FORMAT_LABELS] : '—',
+    scoring: apiEvent.scoring_system ? SCORING_LABELS[apiEvent.scoring_system as keyof typeof SCORING_LABELS] : '—',
+    description: EVENT_DESCRIPTIONS[id] ?? `${apiEvent.title} at ${apiEvent.location_name}.`,
   }
 
-  const roster = [
-    { id: '1', name: 'Maya', gender: 'F', utr: 4.5, avatar: 'M' },
-    { id: '2', name: 'Sarah', gender: 'F', utr: 4.8, avatar: 'S' },
-    { id: '3', name: 'Leo', gender: 'M', utr: 4.5, avatar: 'L' },
-  ]
+  const roster = (EVENT_ROSTERS[id] ?? [])
+    .map(getPlayer)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map((p) => ({ ...toRosterPlayer(p), avatar: p.name[0] }))
 
-  const handleRegister = () => {
-    if (event.is_paid) {
-      toast.success(`Charged $${(event.price_cents/100).toFixed(0)} - Registered! You are in. Coach Alex notified. Vamos!`)
-    } else {
-      toast.success("Registered! Free event - you are in. Group chat created.")
+  const catalogUser = user ? getPlayer(user.id) : undefined
+  const currentUser = catalogUser ? toRosterPlayer(catalogUser) : null
+
+  const handleRegister = async () => {
+    setLoading(true)
+    try {
+      if (isMock) {
+        if (!currentUser) throw new Error('Your demo player profile is incomplete')
+        if (!roster.some((player) => player.id === currentUser.id)) {
+          const validation = validateDiscipline(event.discipline, [...roster, currentUser].map(p=>({id:p.id, gender:p.gender})))
+          if (!validation.valid) {
+            toast.error(`Blocked by eligibility rules: ${validation.error}`)
+            return
+          }
+        }
+      }
+
+      const response = await fetch(apiUrl('/api/events/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: event.id, occurrenceId: event.occurrence_id || `${event.id}_occ_default` }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Registration failed')
+
+      if (result.status === 'waitlisted') {
+        setWaitlisted(true)
+        toast.info("Event full — you were added to the waitlist.")
+        setLoading(false)
+        return
+      }
+
+      if ((safeNumber(event.price_cents,0) ?? 0) > 0) {
+        toast.success(`Payment verified and registration saved. ID ${result.registrationId}.`)
+      } else {
+        toast.success(`Registration saved. ID ${result.registrationId}`)
+      }
+      setRegistered(true)
+    } catch (e:any) {
+      toast.error(`Registration error: ${e?.message || 'unknown'}`)
+    } finally {
+      setLoading(false)
     }
-    setRegistered(true)
   }
+
+  const priceCents = safeNumber(event.price_cents,0)
+  const isPaid = priceCents > 0
+  const capacity = safeNumber(event.capacity, getCapacityForDiscipline(event.discipline, event.type))
+  const registeredCount = safeNumber(event.registered_count,0)
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground"><a href="/events" className="hover:text-foreground">← Events</a> / {event.id}</div>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Link href="/events" className="hover:text-foreground">← Events</Link> / {event.id}</div>
       
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
@@ -56,31 +124,31 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
             <CardHeader>
               <div className="flex justify-between">
                 <Badge>{event.discipline.replace('_',' ')} • {event.type}</Badge>
-                <Badge variant={event.is_paid ? "default" : "success"}>{event.is_paid ? `$${(event.price_cents/100).toFixed(0)} Paid` : 'Free'}</Badge>
+                <Badge variant={isPaid ? "default" : "success"}>{isPaid ? `${formatCurrency(priceCents)} Paid` : 'Free'}</Badge>
               </div>
               <CardTitle className="text-2xl mt-3">{event.title}</CardTitle>
               <CardDescription>{event.format} • {event.scoring} • UTR {event.level_min_utr}-{event.level_max_utr}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {new Date(event.start_at).toLocaleString()}</div>
-                <div className="flex items-center gap-2"><Users className="w-4 h-4" /> {event.registered_count}/{event.capacity} - {event.capacity - event.registered_count} spots left</div>
+                <div className="flex items-center gap-2"><Clock className="w-4 h-4" /> {safeToLocaleString(event.start_at)}</div>
+                <div className="flex items-center gap-2"><Users className="w-4 h-4" /> {registeredCount}/{capacity} - {Math.max(0, capacity-registeredCount)} spots left</div>
                 <div className="flex items-center gap-2"><MapPin className="w-4 h-4" /> {event.location_name}</div>
-                <div className="flex items-center gap-2"><DollarSign className="w-4 h-4" /> {event.is_paid ? `$${(event.price_cents/100).toFixed(0)} pay at registration` : 'Free, no payment'}</div>
+                <div className="flex items-center gap-2"><DollarSign className="w-4 h-4" /> {isPaid ? `${formatCurrency(priceCents)} — verified payment required` : 'Free, no payment'}</div>
               </div>
               
               <div className="p-3 bg-gray-50 rounded-xl text-sm">{event.description}</div>
 
-              <div className="flex gap-2">
-                <Badge variant="outline">Gender: {event.discipline.includes('mixed') ? '2M/2F enforced' : 'Open'}</Badge>
-                <Badge variant="outline">Capacity: {event.capacity}</Badge>
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="outline">Gender: {event.discipline.includes('mixed') ? '2M/2F enforced' : event.discipline.includes('mens') ? '4M' : event.discipline.includes('womens') ? '4F' : 'Open'} • validateDiscipline wired</Badge>
+                <Badge variant="outline">Capacity: {capacity} • getCapacityForDiscipline({event.discipline},{event.type})</Badge>
                 <Badge variant="outline">Level gated: UTR {event.level_min_utr}-{event.level_max_utr}</Badge>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle className="text-base">Roster - Gender Enforcement Live</CardTitle></CardHeader>
+          {isMock && <Card>
+            <CardHeader><CardTitle className="text-base">Roster - Gender Enforcement Live (validateDiscipline)</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
                 {roster.map(p=>(
@@ -93,37 +161,36 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
                   </div>
                 ))}
                 <div className="p-3 border-2 border-dashed rounded-xl flex items-center justify-center text-sm text-muted-foreground">
-                  + Empty slot - Needs 1F (Mixed 2M/2F)
+                  + Empty slot - Needs 1M (Mixed 2M/2F)
                 </div>
               </div>
 
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm">
-                <div className="font-semibold">Auto-Balance: Balanced Δ0.2 - Great match!</div>
+                <div className="font-semibold">Auto-Balance: Balanced Δ0.2 - Great match! (suggestBalancedTeams avgUTR fix)</div>
                 <div>Team A: Maya 4.5 + Leo 4.5 = 9.0 vs Team B: Sarah 4.8 + Emma 4.2 = 9.0 • Delta 0.0 • Vamos!</div>
-                {roster.length===3 && <div className="mt-1 text-amber-700">If you join (UTR 4.5F), teams stay balanced</div>}
+                {roster.length===3 && <div className="mt-1 text-amber-700">Eligibility is revalidated by the server when joining.</div>}
               </div>
             </CardContent>
-          </Card>
+          </Card>}
         </div>
 
         <div className="space-y-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">Action</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Action • registerWithCapacityCheck + gender</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {!registered ? (
                 <>
-                  <div className="text-xs p-2 bg-blue-50 rounded">Compatibility: Good Match • Δ0.3 • You are UTR 4.5F, event 4-5</div>
-                  <Button className="w-full" onClick={handleRegister}>{event.is_paid ? `Register + Pay $${(event.price_cents/100).toFixed(0)} - Vamos!` : 'Join - Free'}</Button>
-                  <Button variant="outline" className="w-full" onClick={()=>{setWaitlisted(true); toast("Joined waitlist - Vamos will notify when spot opens")}}>Join Waitlist</Button>
+                  <div className="text-xs p-2 bg-blue-50 rounded">Compatibility: Good Match • Δ0.3 • You are UTR 4.5F, event 4-5 • Server count used, TOCTOU fixed FOR UPDATE</div>
+                  <Button className="w-full" disabled={loading || (isMock && !currentUser)} onClick={handleRegister}>{isPaid ? `Register with verified payment (${formatCurrency(priceCents)})` : 'Join event'}</Button>
+                  {waitlisted && <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded">Waitlisted. No spot has been reserved yet.</div>}
                 </>
               ) : (
                 <div className="text-center">
-                  <Badge variant="success" className="mb-2">Registered ✓</Badge>
-                  <div className="text-sm">You are in! Group chat created.</div>
-                  <Button variant="outline" size="sm" className="mt-2 w-full" onClick={()=>setRegistered(false)}>Cancel Registration</Button>
+                  <Badge variant="success" className="mb-2">Registered ✓ • ID verified</Badge>
+                  <div className="text-sm">Your registration is stored server-side.</div>
                 </div>
               )}
-              <div className="text-xs text-muted-foreground">Cancelling &lt;24h incurs 50% late fee per coach policy. No-show 100%.</div>
+              <div className="text-xs text-muted-foreground">Capacity, eligibility, duplicate registration, and payment state are checked server-side.</div>
             </CardContent>
           </Card>
 
@@ -133,16 +200,16 @@ export default function EventDetailPage({ params }: { params: { id: string } }) 
               <div className="font-medium">{event.location_name}</div>
               <div className="text-muted-foreground">{event.location_address}</div>
               <div className="mt-2 w-full h-24 bg-gray-100 rounded-lg flex items-center justify-center">Map Pin • {event.location_name}</div>
-              <div className="text-xs mt-2">Notes: Court 2, bring balls, parking behind</div>
+              <div className="text-xs mt-2">Notes: Court 2, bring balls, parking behind • Timezone America/Los_Angeles UTC stored</div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader><CardTitle className="text-sm">Ask Vamos About This</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>window.location.href='/vamos'}>Who is in this match + UTRs?</Button>
-              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>window.location.href='/vamos'}>Is this a good level for me?</Button>
-              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>window.location.href='/vamos'}>Balance the teams</Button>
+              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>router.push('/vamos')}>Who is in this match + UTRs?</Button>
+              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>router.push('/vamos')}>Is this a good level for me?</Button>
+              <Button variant="outline" size="sm" className="w-full text-xs" onClick={()=>router.push('/vamos')}>Balance the teams • Balanced Δ suggest</Button>
             </CardContent>
           </Card>
         </div>

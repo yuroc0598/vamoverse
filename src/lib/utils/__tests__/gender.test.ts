@@ -211,6 +211,19 @@ describe('suggestBalancedTeams', () => {
     expect(teamA.length).toBe(2)
     expect(teamB.length).toBe(2)
   })
+  it('keeps one man and one woman on each mixed-doubles team', () => {
+    const players = [
+      { id: 'm1', name: 'M1', gender: 'M' as const, utr: 5 },
+      { id: 'm2', name: 'M2', gender: 'M' as const, utr: 3 },
+      { id: 'f1', name: 'F1', gender: 'F' as const, utr: 5 },
+      { id: 'f2', name: 'F2', gender: 'F' as const, utr: 3 },
+    ]
+    const result = suggestBalancedTeams(players, 'mixed_doubles')
+    for (const team of [result.teamA, result.teamB]) {
+      expect(team.filter((player) => player.gender === 'M')).toHaveLength(1)
+      expect(team.filter((player) => player.gender === 'F')).toHaveLength(1)
+    }
+  })
   it('produces unbalanced suggestion when delta >1', () => {
     const players = [
       { id: '1', name: 'A', utr: 8.0 },

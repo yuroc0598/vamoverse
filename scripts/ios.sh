@@ -42,8 +42,10 @@ DERIVED="$ROOT/ios/App/build"
 # ("Unable to retrieve simulator list: Reduce of empty array").
 deploy() {
   local udid="$1"
+  local ip; ip="$(detect_ip)"
+  [ -z "${ip:-}" ] && { echo "❌ Could not detect Mac IP." >&2; exit 1; }
   echo "🔄 Syncing web assets & pods..."
-  npx cap copy ios >/dev/null
+  CAPACITOR_ALLOW_LIVERELOAD=true CAPACITOR_DEV_URL="http://${ip}:${PORT}" npx cap copy ios >/dev/null
   echo "🔨 Building for device (xcodebuild)..."
   xcodebuild \
     -workspace ios/App/App.xcworkspace \
@@ -103,11 +105,8 @@ case "$cmd" in
   ip)
     ip="$(detect_ip)"
     [ -z "${ip:-}" ] && { echo "❌ Could not detect Mac IP." >&2; exit 1; }
-    echo "🌐 Mac IP: $ip — updating capacitor.config.ts ..."
-    # Rewrite the server.url line to the current IP.
-    sed -i '' -E "s#url: 'http://[0-9.]+:${PORT}'#url: 'http://${ip}:${PORT}'#" capacitor.config.ts
-    npx cap copy ios >/dev/null
-    echo "✅ server.url → http://${ip}:${PORT} (synced to iOS project)."
+    echo "🌐 Mac IP: $ip — live reload URL is http://${ip}:${PORT}"
+    echo "Run npm run ios:go to sync it without modifying tracked release config."
     ;;
 
   device)

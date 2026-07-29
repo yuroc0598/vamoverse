@@ -1,85 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/logger'
+import { hasDatabase, query, withTransaction } from '@/lib/db/pg'
+import { getPaymentClient } from '@/lib/payments/client'
+import { isDemoMode } from '@/lib/runtime/config'
 
-// FIX C2,H2,M9: Production-grade cron with row locking to prevent double-capture
-// - Uses SELECT ... FOR UPDATE SKIP LOCKED
-// - Idempotent state transition WHERE status='requires_capture'
-// - Partial index on auto_capture_at for performance
-// - Separate internal review vs Stripe chargeback (C3)
+function validBearer(value: string | null, secret: string): boolean {
+  if (!value?.startsWith('Bearer ')) return false
+  const supplied = value.slice(7)
+  if (supplied.length !== secret.length) return false
+  let mismatch = 0
+  for (let index = 0; index < secret.length; index++) mismatch |= supplied.charCodeAt(index) ^ secret.charCodeAt(index)
+  return mismatch === 0
+}
+
+interface ClaimedPayment {
+  id: string
+  stripe_payment_intent_id: string
+  capture_attempts: number
+}
 
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || undefined
-  try {
-    // FIX N20: Cron endpoint auth fails open when CRON_SECRET unset - was `if (cronSecret && authHeader !== ...)` which allows unauth when secret unset
-    // Fixed: Fail-closed in production, fail-open only in dev mock with warning
-    const authHeader = req.headers.get('authorization')
-    const cronSecret = process.env.CRON_SECRET
-    const isProd = process.env.NODE_ENV === 'production'
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) return NextResponse.json({ error: 'Cron is not configured' }, { status: 503 })
+  if (!validBearer(req.headers.get('authorization'), cronSecret)) {
+    logger.warn('cron.capture_unauthorized', { requestId })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-    if (isProd) {
-      // In production, secret MUST be set and must match - fail closed
-      if (!cronSecret) {
-        logger.error('cron.capture_misconfigured', { requestId, reason: 'CRON_SECRET unset in production' })
-        return NextResponse.json({ error: 'Cron secret not configured - failing closed per N20 fix' }, { status: 500 })
+  if (!hasDatabase()) {
+    if (isDemoMode()) return NextResponse.json({ status: 'demo', captured: 0, processed: false })
+    return NextResponse.json({ error: 'Payment database is not configured' }, { status: 503 })
+  }
+  if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ error: 'Stripe is not configured' }, { status: 503 })
+
+  try {
+    const claimed = await withTransaction(async (db) => {
+      const rows = await db.query<ClaimedPayment>(
+        `SELECT id, stripe_payment_intent_id, capture_attempts
+         FROM payments
+         WHERE status='requires_capture'
+           AND stripe_payment_intent_id IS NOT NULL
+           AND auto_capture_at <= now()
+           AND (next_capture_attempt_at IS NULL OR next_capture_attempt_at <= now())
+           AND (capture_claimed_at IS NULL OR capture_claimed_at < now() - interval '10 minutes')
+         ORDER BY auto_capture_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT 100`
+      )
+      if (rows.rows.length) {
+        await db.query(
+          `UPDATE payments SET capture_claimed_at=now(), capture_attempts=capture_attempts+1, updated_at=now()
+           WHERE id = ANY($1::text[])`,
+          [rows.rows.map((row) => row.id)]
+        )
       }
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        logger.warn('cron.capture_unauthorized', { requestId, reason: 'invalid token' })
-        return NextResponse.json({ error: 'Unauthorized cron - invalid token' }, { status: 401 })
-      }
-    } else {
-      // Dev mock mode: allow without secret but log warning, still check if provided
-      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-        logger.warn('cron.capture_unauthorized', { requestId, mode: 'dev', reason: 'secret set but token mismatch' })
-        return NextResponse.json({ error: 'Unauthorized cron (dev mode with secret set)' }, { status: 401 })
-      }
-      if (!cronSecret) {
-        // No secret in dev = allow with warning (ok for mock)
-        logger.warn('cron.capture_fail_open', { requestId, mode: 'dev', reason: 'CRON_SECRET unset — allowing unauthenticated run (dev only)' })
+      return rows.rows
+    })
+
+    const client = getPaymentClient()
+    let captured = 0
+    let failed = 0
+    for (const payment of claimed) {
+      try {
+        const result = await client.capturePayment(payment.stripe_payment_intent_id)
+        await query(
+          `UPDATE payments SET status=$2, capture_claimed_at=NULL, last_capture_error=NULL, next_capture_attempt_at=NULL,
+             captured_at=CASE WHEN $2='captured' THEN now() ELSE captured_at END, updated_at=now()
+           WHERE id=$1`,
+          [payment.id, result.status]
+        )
+        if (result.status === 'captured') captured++
+      } catch (error) {
+        failed++
+        const retryMinutes = Math.min(60, 2 ** Math.min(payment.capture_attempts + 1, 6))
+        await query(
+          `UPDATE payments SET capture_claimed_at=NULL, last_capture_error=$2,
+             next_capture_attempt_at=now() + ($3::text || ' minutes')::interval, updated_at=now()
+           WHERE id=$1`,
+          [payment.id, error instanceof Error ? error.message.slice(0, 500) : 'capture failed', retryMinutes]
+        )
       }
     }
-
-    // In real implementation with Supabase:
-    /*
-    const supabase = createClient()
-    // FIX H2, C2, M9: Transactional capture with row locking
-    const { data: pending } = await supabase.rpc('capture_pending_payments', {
-      // This RPC would do:
-      // BEGIN;
-      // SELECT * FROM payments WHERE status='requires_capture' AND auto_capture_at <= now() 
-      //   ORDER BY auto_capture_at FOR UPDATE SKIP LOCKED LIMIT 100;
-      // For each: UPDATE payments SET status='captured', captured_at=now(), internal_review_status='approved' 
-      //   WHERE id=payment.id AND status='requires_capture' RETURNING *;
-      // Then call Stripe capture with idempotency_key
-      // COMMIT;
-    })
-    */
-
-    // FIX M11: Dedup key prevents duplicate notifications
-    // create notification with dedup_key = payment_id:payment_captured
-
-    return NextResponse.json({ 
-      status: 'Cron ran - checked pending captures (MOCK MODE)',
-      captured: 0,
-      implementation: {
-        sql: "SELECT * FROM payments WHERE status='requires_capture' AND auto_capture_at <= now() FOR UPDATE SKIP LOCKED LIMIT 100",
-        update: "UPDATE payments SET status='captured', captured_at=now(), internal_review_status='approved' WHERE id=$1 AND status='requires_capture'",
-        idempotency: "Use payments.idempotency_key for Stripe capture - guarantees no double-charge",
-        index: "CREATE INDEX payments_auto_capture_idx ON payments(auto_capture_at) WHERE status='requires_capture'",
-        webhook: "Stripe webhook is source of truth - this cron is backup, real status comes from payment_intent.succeeded webhook"
-      },
-      note: 'In mock mode, auto-capture happens client-side via setInterval every 5s checking localStorage. In prod, this endpoint uses row locking and is idempotent.'
-    })
-  } catch (err: any) {
-    // Money path — a silent failure here means payments never auto-capture. Always log.
-    logger.error('cron.capture_failed', { requestId, err })
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    logger.info('cron.capture_completed', { requestId, claimed: claimed.length, captured, failed })
+    return NextResponse.json({ status: 'ok', claimed: claimed.length, captured, failed })
+  } catch (error) {
+    logger.error('cron.capture_failed', { requestId, error })
+    return NextResponse.json({ error: 'Capture job failed' }, { status: 500 })
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ 
-    status: 'Cron endpoint - POST to trigger capture of pending payments where auto_capture_at passed',
-    fixes_applied: ['C2 idempotency', 'H2 capacity TX with FOR UPDATE', 'M9 partial index', 'C3 webhook source of truth'],
-    prod_sql: "See POST implementation comment for production SQL with SKIP LOCKED"
-  })
+  return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 })
 }

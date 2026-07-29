@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { validateDiscipline, getCapacityForDiscipline } from '@/lib/utils/gender'
-import { registerWithCapacityCheck } from '@/lib/utils/capacity'
+import { registerWithCapacityCheck, clearMockRegistrations } from '@/lib/utils/capacity'
 
 describe('Registration Flow Integration', () => {
+  beforeEach(() => {
+    clearMockRegistrations()
+  })
   it('mixed doubles registration enforces 2M2F exactly', async () => {
     const discipline = 'mixed_doubles' as const
     // Step 1: validate partial fill
@@ -26,13 +29,12 @@ describe('Registration Flow Integration', () => {
 
   it('capacity enforcement prevents overbooking -> waitlist', async () => {
     const capacity = 4
-    // First 4 registrations succeed
+    const occId = `occ_flow_${Date.now()}`
     for (let i = 0; i < 4; i++) {
-      const res = await registerWithCapacityCheck('occ1', `stu${i}`, 'evt1', i, capacity)
+      const res = await registerWithCapacityCheck(occId, `stu${i}`, 'evt1', capacity)
       expect(res.status).toBe('registered')
     }
-    // 5th goes to waitlist
-    const res = await registerWithCapacityCheck('occ1', 'stu5', 'evt1', 4, capacity)
+    const res = await registerWithCapacityCheck(occId, 'stu5', 'evt1', capacity)
     expect(res.status).toBe('waitlisted')
   })
 
@@ -63,8 +65,7 @@ describe('Registration Flow Integration', () => {
     const cap = getCapacityForDiscipline(discipline, 'custom_match')
     expect(cap).toBe(4)
 
-    // Registration mock
-    const reg = await registerWithCapacityCheck('occ_custom', 'stu_owner', 'evt_custom', 0, cap)
+    const reg = await registerWithCapacityCheck(`occ_custom_${Date.now()}`, 'stu_owner', 'evt_custom', cap)
     expect(reg.success).toBe(true)
   })
 })

@@ -1,69 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { logger } from '@/lib/logger'
+import { hasDatabase, withTransaction } from '@/lib/db/pg'
+import { isDemoMode } from '@/lib/runtime/config'
 
-// FIX C3: Webhook handler with signature verification + idempotent processing
-// This is the source of truth for payment status, not client setInterval
+function paymentIntentId(value: string | Stripe.PaymentIntent | null): string | null {
+  if (!value) return null
+  return typeof value === 'string' ? value : value.id
+}
 
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') || undefined
   const signature = req.headers.get('stripe-signature')
+  const secret = process.env.STRIPE_WEBHOOK_SECRET
+  const stripeKey = process.env.STRIPE_SECRET_KEY
 
-  if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    // Mock mode - the raw body can contain customer PII, so log only its size,
-    // never the payload itself.
-    const body = await req.text()
-    logger.info('payments.webhook_received', { requestId, mode: 'mock', bodyBytes: body.length })
-    return NextResponse.json({ received: true, mock: true, note: 'Stripe webhook secret not configured - mock mode. In prod, verify signature.' })
+  if (!secret || !stripeKey) {
+    if (!isDemoMode()) {
+      logger.error('payments.webhook_missing_config', { requestId })
+      return NextResponse.json({ error: 'Webhook is not configured' }, { status: 503 })
+    }
+    await req.text()
+    return NextResponse.json({ received: true, demo: true, processed: false })
+  }
+  if (!signature) return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 })
+  if (!hasDatabase()) return NextResponse.json({ error: 'Payment database is not configured' }, { status: 503 })
+
+  let event: Stripe.Event
+  try {
+    const stripe = new Stripe(stripeKey)
+    event = stripe.webhooks.constructEvent(await req.text(), signature, secret)
+  } catch (error) {
+    logger.warn('payments.webhook_signature_invalid', { requestId, error })
+    return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 })
   }
 
   try {
-    // In real implementation:
-    // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-    // const event = stripe.webhooks.constructEvent(await req.text(), signature!, process.env.STRIPE_WEBHOOK_SECRET!)
-    
-    // Dedupe on Stripe event.id
-    // const { data: existing } = await supabase.from('stripe_events').select('id').eq('id', event.id).single()
-    // if (existing) return { received: true, deduped: true }
+    const result = await withTransaction(async (db) => {
+      const inserted = await db.query(
+        `INSERT INTO stripe_events(event_id, type) VALUES ($1,$2)
+         ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+        [event.id, event.type]
+      )
+      if (!inserted.rowCount) return 'deduped' as const
 
-    // Handle events:
-    // switch(event.type) {
-    //   case 'payment_intent.succeeded':
-    //     // UPDATE payments SET status='captured', stripe_charge_id=event.data.object.latest_charge, captured_at=now()
-    //     // WHERE stripe_payment_intent_id=event.data.object.id AND status != 'captured' (idempotent)
-    //     break
-    //   case 'payment_intent.payment_failed':
-    //     // UPDATE payments SET status='failed', failed_at=now()
-    //     break
-    //   case 'charge.dispute.created':
-    //     // Separate from internal review! This is Stripe chargeback (C3)
-    //     // UPDATE payments SET status='chargeback_open', dispute_reason=... 
-    //     // NOT internal_review_status
-    //     break
-    //   case 'charge.refunded':
-    //     // UPDATE payments SET status='refunded', refunded_at=now()
-    //     // Handle application_fee reversal: platform refunds fee
-    //     break
-    // }
+      if (event.type === 'payment_intent.succeeded') {
+        const intent = event.data.object
+        if (intent.currency !== 'usd') throw new Error('Unexpected payment currency')
+        const updated = await db.query(
+          `UPDATE payments SET status='captured', captured_at=now(), capture_claimed_at=NULL,
+             last_capture_error=NULL, next_capture_attempt_at=NULL, updated_at=now()
+           WHERE stripe_payment_intent_id=$1 AND amount_cents=$2 RETURNING id`,
+          [intent.id, intent.amount]
+        )
+        if (!updated.rowCount) throw new Error('PaymentIntent did not match a payment row')
+      } else if (event.type === 'payment_intent.amount_capturable_updated') {
+        await db.query(`UPDATE payments SET status='requires_capture', updated_at=now() WHERE stripe_payment_intent_id=$1`, [event.data.object.id])
+      } else if (event.type === 'payment_intent.payment_failed') {
+        await db.query(`UPDATE payments SET status='failed', capture_claimed_at=NULL, updated_at=now() WHERE stripe_payment_intent_id=$1`, [event.data.object.id])
+      } else if (event.type === 'payment_intent.canceled') {
+        await db.query(`UPDATE payments SET status='cancelled', capture_claimed_at=NULL, updated_at=now() WHERE stripe_payment_intent_id=$1`, [event.data.object.id])
+      } else if (event.type === 'charge.refunded') {
+        const id = paymentIntentId(event.data.object.payment_intent)
+        if (id) await db.query(`UPDATE payments SET status='refunded', updated_at=now() WHERE stripe_payment_intent_id=$1`, [id])
+      } else if (event.type === 'charge.dispute.created') {
+        const id = paymentIntentId(event.data.object.payment_intent)
+        if (id) await db.query(`UPDATE payments SET status='chargeback_open', updated_at=now() WHERE stripe_payment_intent_id=$1`, [id])
+      }
+      return 'processed' as const
+    })
 
-    return NextResponse.json({ received: true })
-
-  } catch (err: any) {
-    // Security-relevant: a failed signature check may indicate a forged webhook.
-    logger.warn('payments.webhook_signature_invalid', { requestId, err })
-    return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 })
+    logger.info('payments.webhook_processed', { requestId, eventId: event.id, eventType: event.type, result })
+    return NextResponse.json({ received: true, [result]: true })
+  } catch (error) {
+    logger.error('payments.webhook_processing_failed', { requestId, eventId: event.id, eventType: event.type, error })
+    return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 })
   }
 }
 
-// FIX C3: Separate internal review state from Stripe chargeback
-// - internal_review_status: hold, disputed_by_student, approved, rejected (our 2hr window)
-// - status: chargeback_open, chargeback_lost (Stripe dispute)
-// Never reuse same enum value for both
-
 export async function GET() {
-  return NextResponse.json({
-    status: 'Stripe webhook endpoint - POST only',
-    fixes: ['C3 webhook verification + idempotent processing', 'Separate internal_review_status vs chargeback status'],
-    required_env: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'],
-    prod_implementation: 'See POST handler comments for full implementation with signature verification, dedup on event.id, and state transitions'
-  })
+  return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 })
 }

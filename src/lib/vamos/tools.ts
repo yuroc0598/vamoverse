@@ -15,8 +15,8 @@ export const VAMOS_TOOLS: VamosTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        utr_min: { type: 'number', description: 'Minimum UTR 1-10' },
-        utr_max: { type: 'number', description: 'Maximum UTR 1-10' },
+        utr_min: { type: 'number', description: 'Minimum UTR 1-16.5' },
+        utr_max: { type: 'number', description: 'Maximum UTR 1-16.5' },
         gender: { type: 'string', description: 'M, F, or any', enum: ['M', 'F', 'any'] },
         discipline: { type: 'string', description: 'mens_singles, womens_singles, mens_doubles, womens_doubles, mixed_doubles, open_singles, open_doubles, open' },
         location_radius_miles: { type: 'number', description: 'Radius in miles' },
