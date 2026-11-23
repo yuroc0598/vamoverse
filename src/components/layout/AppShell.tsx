@@ -1,146 +1,112 @@
 "use client"
-import { useAuth } from "@/hooks/useAuth"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Calendar, Users, DollarSign, MessageCircle, LayoutDashboard, Trophy, Search, Bell, LogOut } from "lucide-react"
-import { useEffect, useState } from "react"
-import { VamosWidget } from "@/components/vamos/VamosWidget"
+import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
+import { Bell, Calendar, DollarSign, Home, LogOut, MessageCircle, Search, Settings, Sun, Users } from 'lucide-react'
+import { Logo } from '@/components/brand'
+import { apiUrl } from '@/lib/client/api'
+import { cn } from '@/lib/utils'
 
-const coachNav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule", icon: Calendar },
-  { href: "/events", label: "Events", icon: Trophy },
-  { href: "/community", label: "Community", icon: Users },
-  { href: "/messages", label: "Messages", icon: MessageCircle },
-  { href: "/payments", label: "Payments", icon: DollarSign },
+export interface ShellUser {
+  displayName: string
+  isProvider: boolean
+  isAdmin: boolean
+  unreadNotifications: number
+}
+
+const PROVIDER_TABS = [
+  { href: '/today', label: 'Today', icon: Sun },
+  { href: '/schedule', label: 'Schedule', icon: Calendar },
+  { href: '/crew', label: 'Crew', icon: Users },
+  { href: '/money', label: 'Money', icon: DollarSign },
 ]
 
-const studentNav = [
-  { href: "/dashboard", label: "Feed", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule", icon: Calendar },
-  { href: "/play", label: "Play", icon: Search },
-  { href: "/events", label: "Events", icon: Trophy },
-  { href: "/messages", label: "Messages", icon: MessageCircle },
+const PLAYER_TABS = [
+  { href: '/today', label: 'Home', icon: Home },
+  { href: '/find', label: 'Find', icon: Search },
+  { href: '/messages', label: 'Messages', icon: MessageCircle },
+  { href: '/settings', label: 'Profile', icon: Settings },
 ]
 
-const parentNav = [
-  { href: "/dashboard", label: "Family", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule", icon: Calendar },
-  { href: "/events", label: "Events", icon: Trophy },
-  { href: "/messages", label: "Messages", icon: MessageCircle },
-]
-
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth()
+export function AppShell({ user, assistant, children }: { user: ShellUser; assistant?: React.ReactNode; children: React.ReactNode }) {
   const pathname = usePathname()
-  const [mounted, setMounted] = useState(false)
+  const router = useRouter()
+  const tabs = user.isProvider ? PROVIDER_TABS : PLAYER_TABS
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
 
-  useEffect(()=>setMounted(true),[])
-
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-background flex">
-        <aside className="hidden md:flex w-64 border-r bg-white flex-col">
-          <div className="p-6 border-b flex items-center gap-2">
-            <div className="w-8 h-8 bg-clay-500 rounded-lg animate-pulse" />
-            <div className="space-y-2">
-              <div className="h-4 w-20 bg-gray-200 rounded animate-pulse" />
-              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse" />
-            </div>
-          </div>
-          <div className="flex-1 p-4 space-y-2">
-            {Array.from({length:6}).map((_,i)=><div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}
-          </div>
-        </aside>
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 p-4 md:p-6 animate-pulse">
-            <div className="h-8 w-1/3 bg-gray-200 rounded mb-4" />
-            <div className="h-24 bg-gray-100 rounded-2xl" />
-          </div>
-        </div>
-      </div>
-    )
+  async function signOut() {
+    await fetch(apiUrl('/api/auth/signout'), { method: 'POST' })
+    router.replace('/login')
+    router.refresh()
   }
 
-  const navItems = user?.role === 'coach' ? coachNav : user?.role === 'parent' ? parentNav : studentNav
-
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar Desktop */}
-      <aside className="hidden md:flex w-64 border-r bg-white flex-col">
-        <div className="p-6 border-b flex items-center gap-2">
-          <div className="w-8 h-8 bg-clay-500 rounded-lg flex items-center justify-center text-white font-bold">V</div>
-          <div>
-            <div className="font-bold">Vamoverse</div>
-            <div className="text-xs text-muted-foreground">Vamos Together</div>
-          </div>
-        </div>
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map(item => {
-            const active = pathname === item.href
-            return (
-              <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${active ? 'bg-clay-500 text-white' : 'hover:bg-gray-50 text-muted-foreground hover:text-foreground'}`}>
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </Link>
-            )
-          })}
-          <Link href="/vamos" className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${pathname==='/vamos' ? 'bg-court-500 text-white' : 'hover:bg-gray-50 text-muted-foreground'}`}>
-            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-clay-500 to-court-500" />
-            Vamos AI
-            <Badge variant="secondary" className="ml-auto text-[10px]">AI</Badge>
-          </Link>
+    <div className="flex min-h-screen">
+      <aside className="hidden w-60 flex-col border-r bg-white md:flex">
+        <div className="border-b p-5"><Logo href="/today" /></div>
+        <nav className="flex-1 space-y-1 p-3" aria-label="Main">
+          {tabs.map((t) => (
+            <Link key={t.href} href={t.href} aria-current={isActive(t.href) ? 'page' : undefined}
+              className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium',
+                isActive(t.href) ? 'bg-clay-500 text-white' : 'text-muted-foreground hover:bg-gray-50 hover:text-foreground')}>
+              <t.icon className="h-4 w-4" aria-hidden /> {t.label}
+            </Link>
+          ))}
+          {user.isProvider && <SideLink href="/messages" label="Messages" icon={MessageCircle} active={isActive('/messages')} />}
+          {user.isProvider && <SideLink href="/find" label="Find" icon={Search} active={isActive('/find')} />}
+          <SideLink href="/settings" label="Settings" icon={Settings} active={isActive('/settings')} />
+          {user.isAdmin && <SideLink href="/admin" label="Admin" icon={Users} active={isActive('/admin')} />}
         </nav>
-        <div className="p-4 border-t">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 bg-court-500 rounded-full flex items-center justify-center text-white text-sm">{user?.display_name?.[0] || user?.email?.[0] || 'U'}</div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{user?.display_name || user?.email}</div>
-              <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="w-full" onClick={logout}><LogOut className="w-4 h-4 mr-2"/> Log out</Button>
+        <div className="border-t p-4">
+          <div className="mb-3 truncate text-sm font-medium">{user.displayName}</div>
+          <button onClick={signOut} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+            <LogOut className="h-4 w-4" aria-hidden /> Sign out
+          </button>
         </div>
       </aside>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden border-b bg-white p-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-clay-500 rounded-lg flex items-center justify-center text-white font-bold">V</div>
-            <span className="font-bold">Vamoverse</span>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/vamos"><Button size="icon" variant="outline"><div className="w-4 h-4 bg-gradient-to-br from-clay-500 to-court-500 rounded-full" /></Button></Link>
-            <Button size="icon" variant="ghost"><Bell className="w-4 h-4" /></Button>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b bg-white/95 px-4 py-3 backdrop-blur md:justify-end">
+          <div className="md:hidden"><Logo href="/today" /></div>
+          <div className="flex items-center gap-1">
+            {user.isProvider && (
+              <Link href="/messages" className="rounded-lg p-2 hover:bg-gray-100 md:hidden" aria-label="Messages">
+                <MessageCircle className="h-5 w-5" aria-hidden />
+              </Link>
+            )}
+            <Link href="/notifications" className="relative rounded-lg p-2 hover:bg-gray-100" aria-label={`Notifications${user.unreadNotifications ? `, ${user.unreadNotifications} unread` : ''}`}>
+              <Bell className="h-5 w-5" aria-hidden />
+              {user.unreadNotifications > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-clay-500" />}
+            </Link>
+            {user.isProvider && (
+              <Link href="/settings" className="rounded-lg p-2 hover:bg-gray-100 md:hidden" aria-label="Settings">
+                <Settings className="h-5 w-5" aria-hidden />
+              </Link>
+            )}
           </div>
         </header>
-
-        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-y-auto overflow-x-hidden">
-          {children}
-        </main>
-
-        {/* Bottom Nav Mobile */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex overflow-x-auto scrollbar-none p-2 gap-1">
-          {navItems.map(item => {
-            const active = pathname === item.href
-            return (
-              <Link key={item.href} href={item.href} className={`flex flex-col items-center p-2 rounded-xl min-w-[64px] flex-shrink-0 ${active ? 'text-clay-500 bg-clay-50' : 'text-muted-foreground'}`}>
-                <item.icon className="w-5 h-5" />
-                <span className="text-[10px] mt-1 whitespace-nowrap">{item.label}</span>
-              </Link>
-            )
-          })}
-          <Link href="/vamos" className={`flex flex-col items-center p-2 rounded-xl min-w-[64px] flex-shrink-0 ${pathname==='/vamos' ? 'text-clay-500 bg-clay-50' : 'text-muted-foreground'}`}>
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-clay-500 to-court-500" />
-            <span className="text-[10px] mt-1 whitespace-nowrap">Vamos AI</span>
-          </Link>
-        </nav>
+        <main className="flex-1 overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">{children}</main>
       </div>
 
-      <VamosWidget />
+      {assistant}
+
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t bg-white pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Main">
+        {tabs.map((t) => (
+          <Link key={t.href} href={t.href} aria-current={isActive(t.href) ? 'page' : undefined}
+            className={cn('flex flex-col items-center gap-1 py-2 text-[11px]', isActive(t.href) ? 'text-clay-500' : 'text-muted-foreground')}>
+            <t.icon className="h-5 w-5" aria-hidden /> {t.label}
+          </Link>
+        ))}
+      </nav>
     </div>
+  )
+}
+
+function SideLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof Home; active: boolean }) {
+  return (
+    <Link href={href} aria-current={active ? 'page' : undefined}
+      className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium',
+        active ? 'bg-gray-100 text-foreground' : 'text-muted-foreground hover:bg-gray-50 hover:text-foreground')}>
+      <Icon className="h-4 w-4" aria-hidden /> {label}
+    </Link>
   )
 }

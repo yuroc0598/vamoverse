@@ -1,145 +1,91 @@
-# Vamoverse — Vamos Together
+# Vamoverse
 
-**Serious Play. One Crew.**
+Tennis coaches and paid hitting partners run their lessons, clinics, and hitting sessions here:
+booking, payments, reminders, rain-outs, and messages. Players and parents book from one link
+with no app and no account required.
 
-Vamoverse is the OS for independent tennis coaches and their community. Built for serious amateur/club players, junior + adult learners who pay for coaching.
+## What it does
 
-> **Tennis first, racquet sports next (Pickleball, Padel, Squash). US only for V1.**
+**Coaches and hitters**
+- Weekly clinics, privates, semi-privates, and hitting sessions; **open slots** players book themselves.
+- Four payment rules per session: pay when booking, card charged after the session, pay outside the app (cash/Venmo, mark paid in one tap), or free.
+- Cancellation policy (free-cancel window, late-cancel and no-show fees) applied automatically, with one-tap waive.
+- **Rain-out**: cancel a session or a whole day; everyone is told, refunded, or gets their credit back.
+- Waitlists that offer freed seats to the next player automatically.
+- Roster (“Crew”): paste students from a spreadsheet or contacts and book them right away; private notes; who owes what.
+- Packages (prepaid credits) that apply automatically and enforce late cancels.
+- Payouts through Stripe Connect; **Free plan** ($0/month + 2% per payment) or **Pro** ($39/month, no platform fee).
+- Group thread per series (texted to players) and direct messages. Juniors never sign in, so their parent is always the person in the conversation.
+- Safety check (USTA Safe Play or background check) to unlock junior sessions.
 
-## ✨ What Is Implemented
+**Players and parents**
+- Book and pay from a coach’s link as a guest, or sign in to book for juniors and use credits.
+- Reminders the day before and 2 hours before by email and text; calendar invites.
+- Find coaches and hitting partners by area and soonest availability.
 
-- **Events and registration:** Approved coaches can persist events. Free registration is server-authoritative and transactionally enforces capacity, rating, discipline, duplicates, and waitlisting. Mixed doubles enforces **2M/2F** for live roster spots.
-- **Payment reconciliation:** Existing Stripe PaymentIntents can be captured and reconciled by signed webhooks. Checkout/payment creation is not enabled; paid registration refuses entry until an exact captured payment exists.
-- **Vamos demo rules engine:** Local demo mode supports user-bound, one-time confirmations and coach-only custom-match creation. It is intentionally unavailable in production until real data tools replace the demo catalog.
-- **Honest feature boundaries:** Schedule, partner discovery, family cards, and messaging are labeled local demos. Their fixtures are hidden and their writes are disabled in production.
-- **Ratings:** Manual UTR Singles/Doubles 1-16.5, NTRP 1.0-7.0, WTN 40-1, self-reported unverified for V1. Good Match / Stretch / Mismatch badges + auto-balance doubles teams by combined UTR.
-- **UTR account check:** Players can link a UTR ID or profile link plus their name. The server confirms through UTR's public player search that a matching account exists, and each UTR account links to one user. This does not prove ownership or the rating, so ratings stay self-reported. Very common names may not be confirmable automatically.
-- **Location:** Google Places pin for every event (court booking out of scope V1).
+**Assistant** (optional): Claude (`claude-opus-5-5`) with every product action as a tool. Lookups run
+immediately; anything that changes schedules or money is shown for the user to confirm, then runs
+with the user’s own permissions.
 
-## 🏗️ Tech
+## Architecture
 
-- **Frontend:** Next.js 16 App Router, React 19, TypeScript, Tailwind, shadcn/ui
-- **Backend:** Supabase Auth plus Postgres/Redis repositories; explicit local demo mode is unavailable in production
-- **Payments:** Official Stripe server SDK, verified/deduplicated webhooks, database-backed capture claims and retries; demo mode never moves money
-- **Automation:** Rules-based Vamos workflow with user-bound, expiring, one-time, database-backed confirmations
-- **Mobile:** Responsive web in a Capacitor hosted-HTTPS shell; `mobile-shell/` is an offline fallback only
+- Next.js 16 App Router, React 19, TypeScript, Tailwind.
+- **One command registry** (`src/server/commands/registry.ts`). Every product action is a command
+  with a zod input schema, an access level, and a run function. The UI calls them through
+  `POST /api/commands/<name>`, server pages through `runAs(actor)`, and the assistant as tools,
+  so validation and permissions live in one place.
+- **Modules** under `src/server/modules/`: users (accounts, players, guardians), providers, schedule
+  (offerings, recurrence, sessions), bookings (engine, eligibility, links), payments (processor
+  boundary, Stripe, dev simulator, settlement), packages, clients, messaging, notifications
+  (outbox, dispatcher, reminders, ICS), discovery, assistant.
+- **Postgres only.** Schema in `db/migrations/`, applied once each by `src/server/migrate.ts`.
+  Seat changes take a row lock on the session (no overbooking). Money side effects (refunds,
+  after-session charges) are recorded in the same transaction and executed after commit, with
+  scheduled retries. Row-level security denies direct access for any role other than the app.
+- **Auth:** Supabase (email link, SMS code, Google, Apple) in production; signed dev sessions locally.
+  Roles come from the database, never from client-editable metadata.
 
-## 🚀 Quick Start (No Keys Needed - Mock Mode)
-
-```bash
-# 1. Clone
-git clone https://github.com/yuroc0598/vamoverse.git
-cd vamoverse
-
-# 2. Env
-cp .env.example .env
-# .env already contains mock Supabase URLs - no real keys needed for demo
-
-# 3. Install (Meta devs: unset bad registry var)
-env -u npm_config_registry npm install --no-audit --no-fund
-
-# 4. Run
-env -u npm_config_registry npm run dev
-# Open http://localhost:3000
-```
-
-## 🐘 Real Backend (Postgres + Redis)
-
-The explicit demo UI always uses its in-memory catalog, even if infrastructure URLs
-are present. To exercise the **real** repository path independently, start Postgres
-and Redis and run the infrastructure verifier:
+## Run it locally (no Docker, no accounts)
 
 ```bash
-docker compose up -d            # Postgres + Redis; auto-applies db/migrations + db/seed.sql
-
-# add to .env.local
-DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse
-REDIS_URL=redis://localhost:6379
-
-npm run verify:infra            # proves atomic registration + idempotency + Redis KV
+env -u npm_config_registry npm install
+cp .env.example .env.local
+npm run db:dev        # terminal 1: local Postgres (PGlite) on :5433, migrations applied
+npm run db:seed       # demo coach, hitter, players, and a parent
+npm run dev           # terminal 2: http://localhost:3000
 ```
 
-Production uses these backends when demo mode is off. The CI verifier exercises the
-same repository and KV implementations without requiring a local Supabase deployment:
+Sign in at `/login` with any email; nothing is sent in development. Seeded accounts:
+`alex@demo.vamoverse.app` (coach), `sam@demo.vamoverse.app` (hitter), `maya@demo.vamoverse.app`
+(player), `dave@demo.vamoverse.app` (parent). Payments use a local simulator that emits the same
+events as Stripe webhooks; email and SMS go to the server log. Set `ANTHROPIC_API_KEY` to enable the assistant.
 
-| Concern | Mock (default) | Real (`DATABASE_URL` / `REDIS_URL`) |
-| --- | --- | --- |
-| Registration capacity | in-memory count (single process) | `register_for_occurrence()` with `SELECT … FOR UPDATE` — **overbooking-proof under concurrency** |
-| Payment idempotency | in-memory key map | `payments.idempotency_key UNIQUE` |
-| Rate limit / pending confirmations | in-process `Map` | Redis rate limits + Postgres confirmations |
-| Webhook dedup | not processed without live config | Postgres `stripe_events` unique key |
-| Data model | `src/lib/domain/catalog.ts` | `db/migrations/0001_init.sql` (single source of truth) |
+To make someone an admin (safety reviews): `UPDATE users SET is_admin = true WHERE email = '…';`
 
-The data-model source of truth is `db/migrations/0001_init.sql`; the demo catalog
-(`src/lib/domain/catalog.ts`) mirrors it and `db/seed.sql` seeds the same records.
+## Checks
 
-### Demo Accounts (password: demo1234)
-
-- **Coach:** coach@demo.com — Independent coach, $80/$50/$30 rates, can create paid clinics
-- **Student:** maya@demo.com — UTR 4.5F, 3.5 NTRP
-- **Student:** sarah@demo.com — UTR 4.8F
-- **Parent:** dave@demo.com — Parent of 2 juniors (Leo, Emma)
-
-## 🧩 Current Core Flows
-
-**Coach creates an event:**
-Create Event → choose discipline/type/capacity/UTR/time/location → server validates coach role and fields → event + occurrence commit atomically → list refreshes. Push notifications and recurrence editing are not implemented.
-
-**Student registers for a free event:**
-Open event → server resolves the authenticated player → transaction locks the occurrence → eligibility/capacity/duplicate checks run → registration or waitlist result returns.
-
-**Existing manual-capture payment:**
-Coach opens Payments → server atomically claims the coach-owned row → Stripe capture runs outside the database transaction → webhook/database state reconciles the result. No browser timer invents a capture.
-
-## 📁 Project Structure
-
-```
-src/
-  app/
-    page.tsx - Landing
-    (auth)/login,signup - Role selector coach/student/parent
-    (dashboard)/dashboard - Role-based
-      events/ - Events list + [id] detail + registration, gender enforcement Mixed 2M/2F
-      play/ - Explicit local roster/eligibility preview; production partner search disabled
-      payments/ - Server payment ledger (read-only sample ledger in demo)
-      messages/ - Explicit device-only demo; production delivery stays disabled until permission storage is enabled
-      community/ - Player directory UTR filtered
-      vamos/ - Demo-only rules chat page
-    api/
-      vamos/chat - Demo rules/confirmation workflow; production fails closed
-      payments/webhook - Stripe signature verification + transactional database dedup/state transitions
-      cron/capture - Bounded payment claims, Stripe capture, retry/backoff
-  components/
-    ui/ - shadcn
-    events/DisciplineSelector - Gender icons, capacity auto
-    rating/CompatibilityBadge - Good/Stretch/Mismatch
-    vamos/VamosWidget - Floating chat bubble
-  lib/
-    supabase/ - explicit development demo client or real Supabase client
-    payments/ - client interface + mock with idempotency dedup + fee model
-    vamos/ - tools, prompts (UTR 1-16.5), mock_engine regex
-    utils/
-      gender.ts - validateDiscipline symmetric guards + other only open_* + GENDER_TEST_CASES + suggestBalancedTeams
-      rating.ts - getCompatibility + parseUTR up to 16.5
-      capacity.ts - register_for_occurrence FOR UPDATE
-vamoverse/
-  agent.md - Full PRD (public spec)
+```bash
+npm run typecheck && npm run lint
+npm test               # in-process Postgres (PGlite); set TEST_DATABASE_URL to use real Postgres
+npm run test:coverage
+npm run build
 ```
 
-## 🔒 Security / Privacy Notes (Prod Gate)
+CI runs the same against real Postgres.
 
-Production fails closed unless Supabase Auth, Postgres, and Redis are configured. Stripe endpoints separately require their server and webhook secrets. Demo identities/cookies are accepted only outside production.
+## Production
 
-Deployment requires configuring the real providers, running migrations, provisioning approved roles in Supabase `app_metadata`, adding centralized telemetry, and completing hosted HTTPS/iOS signing. Product work still remains for payment/checkout creation, relationship-scoped messaging and parent access, production partner search/Vamos tools, schedule queries, and end-to-end browser/native release tests. Paid registration returns payment-required until a captured payment row exists; it never claims a demo charge succeeded.
+Required environment (the server refuses to start without it): see `.env.example`.
+- Database: `npm run db:migrate` against `DATABASE_URL` (`PGSSL=require` verifies certificates).
+- Stripe: Connect (Express) and a Pro price (`STRIPE_PRO_PRICE_ID`); webhook endpoint
+  `/api/webhooks/stripe` for `checkout.session.*`, `charge.refunded`, `charge.dispute.created`,
+  `account.updated`, `customer.subscription.*`.
+- Scheduled jobs (`vercel.json`): `/api/cron/frequent` every 5 minutes, `/api/cron/hourly` hourly,
+  authorized with `Authorization: Bearer $CRON_SECRET`.
+- Email (Resend) is required; SMS (Twilio) is optional.
 
-See `vamoverse/agent.md` for full PRD.
+## Mobile
 
-## 📄 License
+The iOS app is a Capacitor shell around the hosted site (`capacitor.config.ts`, `ios/`). See `docs/ios.md`.
 
-MIT - Built for learning + demo. Not affiliated with USTA/UTR.
-
-## 🙏 Credits
-
-Built with Next.js, Supabase, Stripe, Postgres, Redis, and Capacitor.
-
-Vamos Together! 🎾
+Not affiliated with UTR Sports, USTA, or ITF. Ratings are self-reported.

@@ -1,11 +1,6 @@
-# Local real backend for Vamoverse.
+# Optional local Postgres (alternative to `npm run db:dev`, which needs no Docker).
 #   docker compose up -d
-# then set in .env.local:
-#   DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse
-#   REDIS_URL=redis://localhost:6379
-#
-# Postgres auto-applies db/migrations/*.sql then db/seed.sql on first boot
-# (files in /docker-entrypoint-initdb.d run in alphabetical order).
+#   DATABASE_URL=postgres://vamoverse:vamoverse@localhost:5432/vamoverse npm run db:migrate
 services:
   db:
     image: postgres:16-alpine
@@ -17,24 +12,10 @@ services:
       - "5432:5432"
     volumes:
       - vamo_pgdata:/var/lib/postgresql/data
-      - ./db/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-      - ./db/migrations/0002_payment_and_confirmation_hardening.sql:/docker-entrypoint-initdb.d/02_hardening.sql:ro
-      - ./db/migrations/0003_utr_account_link.sql:/docker-entrypoint-initdb.d/03_utr_account_link.sql:ro
-      - ./db/seed.sql:/docker-entrypoint-initdb.d/04_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U vamoverse -d vamoverse"]
       interval: 5s
       timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
       retries: 10
 
 volumes:

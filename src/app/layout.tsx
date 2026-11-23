@@ -7,8 +7,8 @@ import { LogInit } from "@/components/LogInit";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Vamoverse - Vamos Together | Tennis Coaching OS",
-  description: "The OS for independent tennis coaches. Vamoverse powered by Vamos AI. Schedule sessions, organize events, manage payments, find doubles partners.",
+  title: "Vamoverse · Tennis lessons, clinics, and hitting partners",
+  description: "Coaches and hitting partners run their schedule, payments, and reminders in one place. Players book from one link, no app needed.",
 };
 
 export default function RootLayout({

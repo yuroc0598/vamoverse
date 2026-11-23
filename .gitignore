@@ -60,3 +60,6 @@ coverage
 
 # Misc
 *.tsbuildinfo
+
+# Local dev database (PGlite)
+.data
