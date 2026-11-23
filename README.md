@@ -13,6 +13,7 @@ Vamoverse is the OS for independent tennis coaches and their community. Built fo
 - **Vamos demo rules engine:** Local demo mode supports user-bound, one-time confirmations and coach-only custom-match creation. It is intentionally unavailable in production until real data tools replace the demo catalog.
 - **Honest feature boundaries:** Schedule, partner discovery, family cards, and messaging are labeled local demos. Their fixtures are hidden and their writes are disabled in production.
 - **Ratings:** Manual UTR Singles/Doubles 1-16.5, NTRP 1.0-7.0, WTN 40-1, self-reported unverified for V1. Good Match / Stretch / Mismatch badges + auto-balance doubles teams by combined UTR.
+- **UTR account check:** Players can link a UTR ID or profile link plus their name. The server confirms through UTR's public player search that a matching account exists, and each UTR account links to one user. This does not prove ownership or the rating, so ratings stay self-reported. Very common names may not be confirmable automatically.
 - **Location:** Google Places pin for every event (court booking out of scope V1).
 
 ## 🏗️ Tech

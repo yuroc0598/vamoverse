@@ -9,6 +9,22 @@ const ratingsSchema = z.object({
   ntrp: z.number().min(1).max(7),
 })
 
+export async function GET(req: NextRequest) {
+  const { actor, isMockMode } = await resolveActor(req)
+  if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (isMockMode) return NextResponse.json({ demo: true, persisted: false })
+  if (!hasDatabase()) return NextResponse.json({ error: 'Profile database is not configured' }, { status: 503 })
+
+  const rows = await query(
+    `SELECT id, utr_singles, utr_doubles, ntrp,
+            utr_player_id, utr_account_name, utr_account_claimed, utr_account_checked_at
+       FROM users WHERE id=$1`,
+    [actor.id]
+  )
+  if (!rows.length) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+  return NextResponse.json({ profile: rows[0], persisted: true })
+}
+
 export async function PATCH(req: NextRequest) {
   const { actor, isMockMode } = await resolveActor(req)
   if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
