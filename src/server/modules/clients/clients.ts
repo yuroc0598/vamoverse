@@ -1,12 +1,14 @@
-// A provider's roster ("crew"): who they teach, how to reach them, and import from contacts.
+// A provider's roster ("crew"). People become clients only by their own action (joining or
+// booking). Imported contacts are invites holding only what the coach typed: nothing is looked
+// up, created, or sent on the coach's behalf.
 import { z } from 'zod'
 import { maybeOne, type Db } from '../../db'
 import { fail } from '../../errors'
 import { personName, optionalText } from '../../schemas'
 import { OPEN_SQL } from '../bookings/status'
-import { enqueue } from '../notifications/outbox'
+import { newId } from '../../ids'
 import { requirePublicProvider } from '../providers/profile'
-import { findOrCreateAccount, findUserIdByContact, normalizePhone, type Actor } from '../users/accounts'
+import { normalizeEmail, normalizePhone, type Actor } from '../users/accounts'
 import { requireManagedPlayer } from '../users/players'
 
 export interface Client {
@@ -49,38 +51,55 @@ export const contactRow = z.object({
   phone: z.string().trim().max(32).nullish().transform((v) => v || null),
 })
 
-export interface ImportResult { added: number; alreadyClients: number; failed: { name: string; reason: string }[] }
+export interface Invite { id: string; name: string; email: string | null; phone: string | null; createdAt: Date }
+export interface ImportResult { added: number; duplicates: number; failed: { name: string; reason: string }[] }
 
-/**
- * Adds contacts to the roster. Each becomes an account they claim by signing in with the
- * same email/phone, so the coach can book them right away. Juniors are added by parents.
- */
-export async function importClients(db: Db, provider: { id: string; name: string; slug: string }, rows: z.output<typeof contactRow>[]): Promise<ImportResult> {
-  const result: ImportResult = { added: 0, alreadyClients: 0, failed: [] }
+const MAX_PENDING_INVITES = 2000
+
+/** Saves contacts as pending invites. The coach sends them from their own phone or email. */
+export async function importInvites(db: Db, providerId: string, rows: z.output<typeof contactRow>[]): Promise<ImportResult> {
+  const pending = (await maybeOne<{ n: number }>(db, `SELECT count(*)::int AS n FROM client_invites WHERE provider_id = $1 AND status = 'pending'`, [providerId]))!.n
+  if (pending + rows.length > MAX_PENDING_INVITES) throw fail.conflict(`You can have up to ${MAX_PENDING_INVITES} pending invites. Remove some first.`)
+  const result: ImportResult = { added: 0, duplicates: 0, failed: [] }
   for (const row of rows) {
     try {
       if (!row.email && !row.phone) throw fail.badRequest('Needs an email or phone number')
-      if (row.phone) normalizePhone(row.phone)
-      const existed = Boolean(await findUserIdByContact(db, row))
-      const account = await findOrCreateAccount(db, row)
       const inserted = await db.query(
-        `INSERT INTO clients (provider_id, player_id, source) VALUES ($1, $2, 'import') ON CONFLICT DO NOTHING RETURNING player_id`,
-        [provider.id, account.playerId])
-      if (!inserted.length) { result.alreadyClients++; continue }
-      result.added++
-      await enqueue(db, {
-        userId: account.userId, kind: 'client.added', title: `${provider.name} added you on Vamoverse`,
-        body: existed
-          ? `You can now see ${provider.name}’s sessions and messages. Not your coach? Leave their crew from their page.`
-          : `See ${provider.name}’s sessions and book in one tap. No app needed.`,
-        link: `/p/${provider.slug}`,
-        dedupeKey: `client.added:${provider.id}:${account.playerId}`,
-      })
+        `INSERT INTO client_invites (id, provider_id, name, email, phone) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id`,
+        [newId('inv'), providerId, row.name, normalizeEmail(row.email), normalizePhone(row.phone)])
+      if (inserted.length) result.added++
+      else result.duplicates++
     } catch (error) {
       result.failed.push({ name: row.name, reason: error instanceof Error ? error.message : 'Could not add' })
     }
   }
   return result
+}
+
+export async function listInvites(db: Db, providerId: string): Promise<Invite[]> {
+  return db.query<Invite>(
+    `SELECT id, name, email, phone, created_at AS "createdAt" FROM client_invites
+     WHERE provider_id = $1 AND status = 'pending' ORDER BY name`, [providerId])
+}
+
+export async function removeInvite(db: Db, providerId: string, inviteId: string): Promise<void> {
+  await db.query(`DELETE FROM client_invites WHERE id = $1 AND provider_id = $2 AND status = 'pending'`, [inviteId, providerId])
+}
+
+/**
+ * Makes a player a client because of their own action (booking, or joining from the coach's
+ * link), and marks any pending invite for their contact as joined.
+ */
+export async function addClient(db: Db, providerId: string, playerId: string, source: 'booking' | 'join'): Promise<void> {
+  await db.query(
+    `INSERT INTO clients (provider_id, player_id, source) VALUES ($1, $2, $3)
+     ON CONFLICT (provider_id, player_id) DO UPDATE SET status = 'active'`, [providerId, playerId, source])
+  await db.query(
+    `UPDATE client_invites i SET status = 'joined', joined_player_id = $2, joined_at = now()
+     FROM players p JOIN users u ON u.id = COALESCE(p.user_id, p.guardian_user_id)
+     WHERE p.id = $2 AND i.provider_id = $1 AND i.status = 'pending'
+       AND ((i.email IS NOT NULL AND lower(i.email) = lower(u.email)) OR (i.phone IS NOT NULL AND i.phone = u.phone))`,
+    [providerId, playerId])
 }
 
 export const clientUpdateInput = z.object({ playerId: z.string(), notes: optionalText(2000).optional(), status: z.enum(['active', 'archived']).optional() })
@@ -97,9 +116,7 @@ export async function updateClient(db: Db, providerId: string, input: z.output<t
 export async function joinCrew(db: Db, actor: Actor, slug: string, playerId?: string): Promise<{ providerName: string }> {
   const provider = await requirePublicProvider(db, slug)
   const player = await requireManagedPlayer(db, actor, playerId ?? actor.playerId)
-  await db.query(
-    `INSERT INTO clients (provider_id, player_id, source) VALUES ($1, $2, 'join')
-     ON CONFLICT (provider_id, player_id) DO UPDATE SET status = 'active'`, [provider.id, player.id])
+  await addClient(db, provider.id, player.id, 'join')
   return { providerName: provider.displayName }
 }
 

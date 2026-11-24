@@ -26,7 +26,7 @@ export const commands = {
   ...assistantCommands,
 }
 
-export type Commands = typeof commands
+type Commands = typeof commands
 export type CommandName = keyof Commands
 export type CommandInput<N extends CommandName> = z.input<Commands[N]['input']>
 export type CommandOutput<N extends CommandName> = Awaited<ReturnType<Commands[N]['run']>>

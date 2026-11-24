@@ -9,7 +9,7 @@ export type Access = 'public' | 'user' | 'provider' | 'admin'
 
 export type ProviderActor = Actor & { providerId: string }
 
-export interface ContextFor<A extends Access> {
+interface ContextFor<A extends Access> {
   actor: A extends 'public' ? Actor | null : A extends 'provider' ? ProviderActor : Actor
   db: Db
   ip: string | null

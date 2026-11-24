@@ -2,14 +2,14 @@
 // applies outcomes to the domain. Writes that must be atomic with a booking change take
 // the caller's transaction handle; processor calls always happen after commit.
 import { paymentsMode } from '../../config'
-import { maybeOne, type Db } from '../../db'
+import { maybeOne, tx, type Db } from '../../db'
 import { fail } from '../../errors'
 import { newId } from '../../ids'
 import { logger } from '@/lib/logger'
 import { effectivePlan, platformFeeCents, type PlanId } from './plans'
 import { getProcessor, type ChargeResult } from './processor'
 
-export type PaymentPurpose = 'booking' | 'package' | 'late_cancel_fee' | 'no_show_fee' | 'card_setup'
+type PaymentPurpose = 'booking' | 'package' | 'late_cancel_fee' | 'no_show_fee' | 'card_setup'
 
 export interface Payment {
   id: string
@@ -59,9 +59,11 @@ interface NewPayment {
   packagePurchaseId?: string | null
 }
 
-async function insertPayment(db: Db, p: NewPayment, mode: 'checkout' | 'off_session', paymentMethodId: string | null): Promise<string> {
-  const provider = await providerPlan(db, p.providerId)
-  if (!provider.chargesEnabled || !provider.accountId) throw fail.paymentRequired('This coach isn’t set up to take card payments yet.')
+type Plan = Awaited<ReturnType<typeof providerPlan>>
+
+const canCollect = (provider: Plan) => provider.chargesEnabled && Boolean(provider.accountId)
+
+async function insertPayment(db: Db, p: NewPayment, provider: Plan, mode: 'checkout' | 'off_session', paymentMethodId: string | null): Promise<string> {
   const id = newId('pay')
   await db.query(
     `INSERT INTO payments (id, provider_id, payer_user_id, purpose, booking_id, package_purchase_id, amount_cents,
@@ -72,19 +74,33 @@ async function insertPayment(db: Db, p: NewPayment, mode: 'checkout' | 'off_sess
   return id
 }
 
-/** Records a pending checkout (call inside the domain transaction); open it with `openCheckout` after commit. */
-export function createCheckoutPayment(db: Db, p: NewPayment): Promise<string> {
-  return insertPayment(db, p, 'checkout', null)
+/**
+ * Records a pending checkout for someone paying right now (call inside the domain
+ * transaction; open it with `openCheckout` after commit). Refuses if the coach can't collect.
+ */
+export async function createCheckoutPayment(db: Db, p: NewPayment): Promise<string> {
+  const provider = await providerPlan(db, p.providerId)
+  if (!canCollect(provider)) throw fail.paymentRequired('This coach isn’t set up to take card payments right now.')
+  return insertPayment(db, p, provider, 'checkout', null)
 }
 
 export async function defaultPaymentMethod(db: Db, userId: string): Promise<{ id: string; brand: string | null; last4: string | null } | null> {
   return maybeOne(db, `SELECT id, brand, last4 FROM payment_methods WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC LIMIT 1`, [userId])
 }
 
-/** Records a pending off-session charge on the payer's saved card, or returns null if they have none. */
-export async function createOffSessionPayment(db: Db, p: NewPayment): Promise<string | null> {
+type OffSessionOutcome = { paymentId: string; deferred: boolean } | { blocked: 'no_card' }
+
+/**
+ * Records a pending charge on the payer's saved card. Never throws for business reasons:
+ * system flows (attendance, fees) must keep working when a card or the coach's payouts aren't ready.
+ * If the coach can't collect right now the charge is `deferred`: it stays pending and is made
+ * by the charge job once their payouts are active again.
+ */
+export async function createOffSessionPayment(db: Db, p: NewPayment): Promise<OffSessionOutcome> {
   const card = await defaultPaymentMethod(db, p.payerUserId)
-  return card ? insertPayment(db, p, 'off_session', card.id) : null
+  if (!card) return { blocked: 'no_card' }
+  const provider = await providerPlan(db, p.providerId)
+  return { paymentId: await insertPayment(db, p, provider, 'off_session', card.id), deferred: !canCollect(provider) }
 }
 
 export async function saveCard(db: Db, userId: string, card: { id: string; brand: string | null; last4: string | null }): Promise<void> {
@@ -156,13 +172,35 @@ export async function executeRefunds(db: Db, paymentIds?: string[]): Promise<num
   return done
 }
 
-/** Charges pending off-session payments; returns each outcome so settlement can update the domain. */
-export async function chargePendingOffSession(db: Db, paymentIds?: string[]): Promise<{ payment: Payment; result: ChargeResult }[]> {
+const MAX_CHARGE_ATTEMPTS = 3
+
+/**
+ * Records a charge that went through after its payment was cancelled (waived, or settled
+ * another way) and requests a full refund; run `executeRefunds` after commit. Returns false
+ * and changes nothing unless the payment is cancelled.
+ */
+export async function refundLateCharge(t: Db, paymentId: string, paymentIntentId: string | null): Promise<boolean> {
+  const rows = await t.query(
+    `UPDATE payments SET status = 'succeeded', payment_intent_id = COALESCE($2, payment_intent_id), refund_requested_cents = amount_cents,
+       failure_message = NULL, updated_at = now() WHERE id = $1 AND status = 'canceled' RETURNING id`, [paymentId, paymentIntentId])
+  return rows.length > 0
+}
+
+/** Applies a charge outcome to the domain, inside the same transaction as the payment update. */
+export type ChargeOutcomeHandler = (t: Db, payment: Payment, result: ChargeResult) => Promise<void>
+
+/**
+ * Charges pending off-session payments. Each payment's result and its domain effect commit
+ * together. Processor errors retry (the charge is idempotent per payment); after the last
+ * attempt the payment fails definitively and the payer is told.
+ */
+export async function chargePendingOffSession(db: Db, onOutcome: ChargeOutcomeHandler, paymentIds?: string[]): Promise<number> {
   const pending = await db.query<Payment & { accountId: string }>(
     `SELECT ${PAYMENT_COLUMNS}, pr.stripe_account_id AS "accountId" FROM payments p JOIN providers pr ON pr.id = p.provider_id
-     WHERE p.mode = 'off_session' AND p.status = 'pending' AND p.attempts < 3 ${paymentIds ? 'AND p.id = ANY($1)' : ''}
-     ORDER BY p.created_at LIMIT 100`, paymentIds ? [paymentIds] : [])
-  const outcomes: { payment: Payment; result: ChargeResult }[] = []
+     WHERE p.mode = 'off_session' AND p.status = 'pending' AND p.attempts < $1
+       AND pr.charges_enabled AND pr.stripe_account_id IS NOT NULL ${paymentIds ? 'AND p.id = ANY($2)' : ''}
+     ORDER BY p.created_at LIMIT 100`, paymentIds ? [MAX_CHARGE_ATTEMPTS, paymentIds] : [MAX_CHARGE_ATTEMPTS])
+  let settled = 0
   for (const payment of pending) {
     const claimed = await db.query(`UPDATE payments SET attempts = attempts + 1 WHERE id = $1 AND status = 'pending' AND attempts = $2 RETURNING id`, [payment.id, payment.attempts])
     if (!claimed.length) continue // another worker took it
@@ -174,23 +212,26 @@ export async function chargePendingOffSession(db: Db, paymentIds?: string[]): Pr
         platformFeeCents: payment.platformFeeCents, destinationAccountId: payment.accountId,
       })
     } catch (error) {
-      logger.error('payments.charge_error', { paymentId: payment.id, error })
-      continue // network/processor error: retried by cron until attempts run out
+      logger.error('payments.charge_error', { paymentId: payment.id, attempt: payment.attempts + 1, error })
+      if (payment.attempts + 1 < MAX_CHARGE_ATTEMPTS) continue // retried by cron
+      // Out of attempts. If the processor did charge, its succeeded webhook reconciles this payment.
+      result = { ok: false, message: 'We couldn’t reach the card processor. Please check your card.' }
     }
-    const applied = await db.query(
-      `UPDATE payments SET status = $2, payment_intent_id = COALESCE($3, payment_intent_id), failure_message = $4, updated_at = now()
-       WHERE id = $1 AND status = 'pending' RETURNING id`,
-      [payment.id, result.ok ? 'succeeded' : 'failed', result.paymentIntentId ?? null, result.ok ? null : result.message])
-    if (!applied.length) {
-      // Cancelled (e.g. fee waived) while the charge was in flight: give the money back.
-      if (result.ok) {
-        await db.query(`UPDATE payments SET status = 'succeeded', payment_intent_id = $2, refund_requested_cents = amount_cents, updated_at = now() WHERE id = $1`,
-          [payment.id, result.paymentIntentId])
-        await executeRefunds(db, [payment.id])
+    const refundWaived = await tx(async (t) => {
+      const applied = await t.query(
+        `UPDATE payments SET status = $2, payment_intent_id = COALESCE($3, payment_intent_id), failure_message = $4, updated_at = now()
+         WHERE id = $1 AND status = 'pending' RETURNING id`,
+        [payment.id, result.ok ? 'succeeded' : 'failed', result.paymentIntentId ?? null, result.ok ? null : result.message])
+      if (applied.length) {
+        await onOutcome(t, payment, result)
+        return false
       }
-      continue
-    }
-    outcomes.push({ payment, result })
+      // No longer pending: either its success webhook got here first (nothing to do), or it was
+      // cancelled while the charge was in flight (e.g. fee waived), and the money goes back.
+      return result.ok && refundLateCharge(t, payment.id, result.paymentIntentId ?? null)
+    })
+    if (refundWaived) await executeRefunds(db, [payment.id])
+    settled++
   }
-  return outcomes
+  return settled
 }

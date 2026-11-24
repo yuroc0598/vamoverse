@@ -13,6 +13,8 @@ export default defineConfig([
   },
   globalIgnores([
     '.next/**',
+    '.next-e2e/**',
+    'e2e-results/**',
     'out/**',
     'coverage/**',
     'ios/**',

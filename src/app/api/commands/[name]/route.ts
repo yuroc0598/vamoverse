@@ -8,6 +8,9 @@ import { fail } from '@/server/errors'
 import { errorResponse, isSameOrigin, requestMeta } from '@/server/http'
 import { enforceRateLimit } from '@/server/ratelimit'
 
+/** The assistant can make several model calls in one request. */
+export const maxDuration = 300
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const meta = requestMeta(req)
   try {

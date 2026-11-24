@@ -146,6 +146,11 @@ export class StripeProcessor implements Processor {
         const paymentId = e.data.object.metadata?.payment_id
         return paymentId ? { type: 'checkout.expired', paymentId } : { type: 'ignored' }
       }
+      case 'payment_intent.succeeded': {
+        const intent = e.data.object
+        const paymentId = intent.metadata?.payment_id
+        return paymentId ? { type: 'payment.succeeded', paymentId, paymentIntentId: intent.id } : { type: 'ignored' }
+      }
       case 'charge.refunded': {
         const charge = e.data.object
         const intentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id

@@ -33,6 +33,7 @@ export interface CardDetails { id: string; brand: string | null; last4: string |
 export type ProcessorEvent =
   | { type: 'checkout.completed'; paymentId: string; paymentIntentId: string | null; card: CardDetails | null }
   | { type: 'checkout.expired'; paymentId: string }
+  | { type: 'payment.succeeded'; paymentId: string; paymentIntentId: string }
   | { type: 'payment.refunded'; paymentIntentId: string; refundedCents: number }
   | { type: 'payment.disputed'; paymentIntentId: string }
   | { type: 'account.updated'; accountId: string; chargesEnabled: boolean; payoutsEnabled: boolean }

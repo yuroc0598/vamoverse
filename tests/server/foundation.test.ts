@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { db, tx } from '@/server/db'
 import { AppError } from '@/server/errors'
 import { consume } from '@/server/ratelimit'
-import { ensureActor, findOrCreateAccount, normalizePhone } from '@/server/modules/users/accounts'
+import { ensureActor, findUserIdByContact, normalizePhone, withNewAccount } from '@/server/modules/users/accounts'
 import { addDays, formatSessionRange, weekdayOf, zonedParts, zonedToUtc } from '@/lib/time'
 import { resetDb } from '../helpers/db'
 import { as } from '../helpers/run'
@@ -18,11 +18,25 @@ describe('accounts', () => {
     expect(await db.query('SELECT 1 FROM players')).toHaveLength(1)
   })
 
-  it('finds an existing account by email or phone before creating one', async () => {
-    const created = await findOrCreateAccount(db, { phone: '(415) 555-0100', name: 'Sam' })
-    const found = await findOrCreateAccount(db, { phone: '+1 415 555 0100', name: 'Someone else' })
-    expect(found.userId).toBe(created.userId)
+  it('handles concurrent first sign-ins and repairs a half-created account', async () => {
+    const identity = { id: 'usr_race', email: 'race@example.com', name: 'Racer' }
+    const [a, b, c] = await Promise.all([ensureActor(db, identity), ensureActor(db, identity), ensureActor(db, identity)])
+    expect(new Set([a.playerId, b.playerId, c.playerId]).size).toBe(1)
+    await db.query(`DELETE FROM players WHERE user_id = 'usr_race'`) // simulate a crash between the two inserts
+    expect((await ensureActor(db, identity)).userId).toBe('usr_race')
+    await expect(ensureActor(db, { id: 'usr_other', email: 'race@example.com' })).rejects.toMatchObject({ code: 'conflict' })
+  })
+
+  it('creates an account only for new contacts, matching phones in any format', async () => {
+    const created = await withNewAccount(db, { phone: '(415) 555-0100', name: 'Sam' }, async (_t, actor) => actor)
     expect(created.phone).toBe('+14155550100')
+    expect(await findUserIdByContact(db, { phone: '+1 415 555 0100' })).toBe(created.userId)
+    await expect(withNewAccount(db, { phone: '415.555.0100', name: 'Someone else' }, async () => null)).rejects.toMatchObject({ code: 'unauthorized' })
+  })
+
+  it('leaves nothing behind when the work after creating an account fails', async () => {
+    await expect(withNewAccount(db, { email: 'gone@example.com', name: 'Gone' }, async () => { throw new Error('booking failed') })).rejects.toThrow('booking failed')
+    expect(await findUserIdByContact(db, { email: 'gone@example.com' })).toBeNull()
   })
 
   it('rejects malformed phone numbers', () => {

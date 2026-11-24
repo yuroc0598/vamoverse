@@ -49,3 +49,30 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
 }
+
+// UIScene lifecycle (required when built with the iOS 27 SDK; apps without a scene
+// manifest crash at launch). UIKit loads Main.storyboard (one CAPBridgeViewController)
+// into `window` per the Info.plist scene configuration. Links now arrive on the scene;
+// Capacitor's SceneDelegateProxy (Capacitor 8.6+) hands them to plugins, holding
+// cold-start links until the plugins have loaded.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        AppDelegate.log.info("Scene connected (URLs: \(connectionOptions.urlContexts.count, privacy: .public), activities: \(connectionOptions.userActivities.count, privacy: .public))")
+        SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            AppDelegate.log.info("Scene opened via URL: \(context.url.absoluteString, privacy: .private)")
+        }
+        SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        AppDelegate.log.info("Scene continue user activity: \(userActivity.activityType, privacy: .public)")
+        SceneDelegateProxy.shared.scene(scene, continue: userActivity)
+    }
+}

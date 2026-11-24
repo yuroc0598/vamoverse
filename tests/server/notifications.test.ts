@@ -15,7 +15,7 @@ beforeEach(resetDb)
 afterEach(() => vi.restoreAllMocks())
 
 const statuses = async (userId: string) =>
-  db.query<{ kind: string; email_status: string; sms_status: string }>(`SELECT kind, email_status, sms_status FROM notifications WHERE user_id = $1 ORDER BY created_at`, [userId])
+  db.query<{ kind: string; email_status: string; sms_status: string }>(`SELECT kind, email_status, sms_status FROM notifications WHERE user_id = $1 ORDER BY kind`, [userId]) // test DB clock ties within a millisecond
 
 describe('delivery', () => {
   it('emails everything, texts only time-sensitive kinds, and honors preferences', async () => {
@@ -35,7 +35,7 @@ describe('delivery', () => {
     await as(maya)('account.update', { notifyEmail: false, notifySms: false })
     await enqueue(db, { userId: maya.userId, kind: 'session.moved', title: 'Moved', body: 'Now 7pm' })
     await deliverPending(db)
-    expect((await statuses(maya.userId))[2]).toEqual({ kind: 'session.moved', email_status: 'skipped', sms_status: 'skipped' })
+    expect((await statuses(maya.userId)).find((n) => n.kind === 'session.moved')).toEqual({ kind: 'session.moved', email_status: 'skipped', sms_status: 'skipped' })
     expect(await deliverPending(db)).toBe(0)
   })
 
@@ -70,8 +70,8 @@ describe('reminders and calendar', () => {
     await enqueueReminders(db)
     await moveSessionSoon(sessionId, 1)
     await enqueueReminders(db)
-    const kinds = (await db.query<{ kind: string }>(`SELECT kind FROM notifications WHERE user_id = $1 AND kind LIKE 'reminder%' ORDER BY created_at`, [maya.userId])).map((r) => r.kind)
-    expect(kinds).toEqual(['reminder.24h', 'reminder.2h'])
+    const kinds = (await db.query<{ kind: string }>(`SELECT kind FROM notifications WHERE user_id = $1 AND kind LIKE 'reminder%' ORDER BY kind`, [maya.userId])).map((r) => r.kind)
+    expect(kinds).toEqual(['reminder.24h', 'reminder.2h']) // exactly one of each
   })
 
   it('builds a valid calendar invite', async () => {

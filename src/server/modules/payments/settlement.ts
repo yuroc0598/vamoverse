@@ -7,7 +7,7 @@ import { onBookingPaid, onChargeResult, type Effects } from '../bookings/engine'
 import { enqueue } from '../notifications/outbox'
 import { activatePurchase } from '../packages/packages'
 import { markGuardianVerified } from '../users/guardians'
-import { chargePendingOffSession, executeRefunds, getPayment, saveCard } from './core'
+import { chargePendingOffSession, executeRefunds, getPayment, refundLateCharge, saveCard, type Payment } from './core'
 import type { CardDetails, ProcessorEvent } from './processor'
 
 /** Executes processor work recorded by a committed transaction. Failures are retried by cron. */
@@ -20,15 +20,14 @@ export async function runEffects(db: Db, effects: Effects): Promise<void> {
   }
 }
 
-async function processCharges(db: Db, paymentIds?: string[]): Promise<number> {
-  const outcomes = await chargePendingOffSession(db, paymentIds)
-  for (const { payment, result } of outcomes) {
-    await tx(async (t) => {
-      await onChargeResult(t, payment, result.ok, result.ok ? null : result.message)
-      if (result.ok) await markGuardianVerified(t, payment.payerUserId, payment.id)
-    })
-  }
-  return outcomes.length
+/** Off-session charges: each result updates the payment and its booking in one transaction. */
+function processCharges(db: Db, paymentIds?: string[]): Promise<number> {
+  return chargePendingOffSession(db, (t, payment, result) => applyChargeOutcome(t, payment, result.ok, result.ok ? null : result.message), paymentIds)
+}
+
+async function applyChargeOutcome(t: Db, payment: Payment, ok: boolean, message: string | null): Promise<void> {
+  await onChargeResult(t, payment, ok, message)
+  if (ok) await markGuardianVerified(t, payment.payerUserId, payment.id)
 }
 
 /** Cron: retry refunds and off-session charges that didn't finish. */
@@ -60,7 +59,27 @@ async function expireCheckout(db: Db, paymentId: string): Promise<void> {
   await db.query(`UPDATE payments SET status = 'canceled', updated_at = now() WHERE id = $1 AND status = 'pending'`, [paymentId])
 }
 
+/**
+ * An off-session charge the processor completed but we didn't record (e.g. our call timed out).
+ * Only a pending or failed payment is settled; a cancelled one keeps its booking as it is and
+ * is refunded; anything already final (succeeded, refunded, disputed) is left alone.
+ */
+async function reconcileCharge(t: Db, paymentId: string, paymentIntentId: string): Promise<Effects | null> {
+  const payment = await getPayment(t, paymentId, { forUpdate: true })
+  if (!payment || payment.mode !== 'off_session') return null
+  if (payment.status === 'canceled') {
+    return (await refundLateCharge(t, paymentId, paymentIntentId)) ? { refunds: [paymentId], charges: [] } : null
+  }
+  if (payment.status !== 'pending' && payment.status !== 'failed') return null
+  await t.query(`UPDATE payments SET status = 'succeeded', payment_intent_id = $2, failure_message = NULL, updated_at = now() WHERE id = $1`, [paymentId, paymentIntentId])
+  await applyChargeOutcome(t, payment, true, null)
+  return null
+}
+
 async function applyRefunded(db: Db, paymentIntentId: string, refundedCents: number): Promise<void> {
+  await db.query(`UPDATE bookings b SET payment_status = 'refunded', updated_at = now() FROM payments p
+     WHERE p.payment_intent_id = $1 AND p.purpose = 'booking' AND b.id = p.booking_id AND $2 >= p.amount_cents AND b.payment_status <> 'refunded'`,
+    [paymentIntentId, refundedCents])
   await db.query(
     `UPDATE payments SET refunded_cents = GREATEST(refunded_cents, $2), refund_requested_cents = GREATEST(refund_requested_cents, $2),
        status = CASE WHEN GREATEST(refunded_cents, $2) >= amount_cents THEN 'refunded' ELSE 'partially_refunded' END, updated_at = now()
@@ -71,6 +90,8 @@ async function applyDisputed(db: Db, paymentIntentId: string): Promise<void> {
   const rows = await db.query<{ providerUserId: string; amount: number }>(
     `UPDATE payments p SET status = 'disputed', updated_at = now() FROM providers pr
      WHERE p.payment_intent_id = $1 AND pr.id = p.provider_id RETURNING pr.user_id AS "providerUserId", p.amount_cents AS amount`, [paymentIntentId])
+  await db.query(`UPDATE bookings b SET payment_status = 'disputed', updated_at = now() FROM payments p
+     WHERE p.payment_intent_id = $1 AND b.id = p.booking_id`, [paymentIntentId])
   for (const r of rows) {
     await enqueue(db, { userId: r.providerUserId, kind: 'payment.disputed', title: 'A payment was disputed', body: `A player disputed a ${formatMoney(r.amount)} charge with their bank. Check Money for details.`, link: '/money' })
   }
@@ -99,6 +120,7 @@ export async function applyProcessorEvent(db: Db, eventId: string, event: Proces
     switch (event.type) {
       case 'checkout.completed': effects = await settleCheckout(t, event.paymentId, event.paymentIntentId, event.card); break
       case 'checkout.expired': await expireCheckout(t, event.paymentId); break
+      case 'payment.succeeded': effects = await reconcileCharge(t, event.paymentId, event.paymentIntentId); break
       case 'payment.refunded': await applyRefunded(t, event.paymentIntentId, event.refundedCents); break
       case 'payment.disputed': await applyDisputed(t, event.paymentIntentId); break
       case 'account.updated': await applyAccountStatus(t, event.accountId, event.chargesEnabled, event.payoutsEnabled); break

@@ -7,9 +7,9 @@ import { maybeOne, tx, type Db } from '../../db'
 import { fail } from '../../errors'
 import { newId } from '../../ids'
 import { gender, isoDate, personName } from '../../schemas'
-import { OPEN_SQL } from '../bookings/status'
+import { UNSETTLED_NOTE, UNSETTLED_SQL } from '../bookings/status'
 import type { Actor } from './accounts'
-import { ageOn, getPlayer, requireManagedPlayer, type Player } from './players'
+import { ageOn, forgetPlayersInBookings, getPlayer, requireManagedPlayer, type Player } from './players'
 
 export const addJuniorInput = z.object({
   displayName: personName,
@@ -45,12 +45,15 @@ export async function addJunior(db: Db, actor: Actor, input: z.output<typeof add
 export async function removeJunior(db: Db, actor: Actor, playerId: string): Promise<void> {
   const player = await requireManagedPlayer(db, actor, playerId)
   if (!player.guardianUserId) throw fail.badRequest('You can only remove juniors you manage.')
-  const upcoming = await maybeOne(db,
+  const unsettled = await maybeOne(db,
     `SELECT 1 FROM bookings b JOIN sessions s ON s.id = b.session_id
-     WHERE b.player_id = $1 AND s.starts_at > now() AND b.status IN ${OPEN_SQL}`,
+     WHERE b.player_id = $1 AND ${UNSETTLED_SQL}`,
     [playerId])
-  if (upcoming) throw fail.conflict('Cancel this junior’s upcoming bookings first.')
-  await db.query(`DELETE FROM players WHERE id = $1`, [playerId])
+  if (unsettled) throw fail.conflict(`Cancel this junior’s upcoming bookings first. ${UNSETTLED_NOTE}`)
+  await tx(async (t) => {
+    await forgetPlayersInBookings(t, [playerId])
+    await t.query(`DELETE FROM players WHERE id = $1`, [playerId])
+  })
 }
 
 export async function getConsent(db: Db, playerId: string): Promise<Consent | null> {

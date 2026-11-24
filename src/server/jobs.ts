@@ -6,24 +6,28 @@ import { deliverPending } from './modules/notifications/dispatcher'
 import { enqueueReminders } from './modules/notifications/reminders'
 import { runEffects, runPaymentJobs } from './modules/payments/settlement'
 import { extendAllSessions } from './modules/schedule/offerings'
+import { isolatedStep } from './isolate'
 import { pruneRateLimits } from './ratelimit'
 
 type Job = () => Promise<Record<string, unknown>>
 
+/** Each step is isolated: one failing step is logged and the others still run. */
 export const JOBS: Record<'frequent' | 'hourly', Job> = {
   frequent: async () => ({
-    expiredHolds: await expireHolds(db),
-    payments: await runPaymentJobs(db),
-    reminders: await enqueueReminders(db),
-    delivered: await deliverPending(db, 200),
+    expiredHolds: await isolatedStep('frequent', 'expireHolds', () => expireHolds(db)),
+    payments: await isolatedStep('frequent', 'payments', () => runPaymentJobs(db)),
+    reminders: await isolatedStep('frequent', 'reminders', () => enqueueReminders(db)),
+    delivered: await isolatedStep('frequent', 'delivery', () => deliverPending(db, 200)),
   }),
-  hourly: async () => {
-    const effects = await completeSessions(db)
-    await runEffects(db, effects)
-    const sessionsGenerated = await extendAllSessions(db)
-    await pruneRateLimits(db)
-    return { charges: effects.charges.length, sessionsGenerated }
-  },
+  hourly: async () => ({
+    completed: await isolatedStep('hourly', 'completeSessions', async () => {
+      const effects = await completeSessions(db)
+      await runEffects(db, effects)
+      return effects.charges.length
+    }),
+    sessionsGenerated: await isolatedStep('hourly', 'extendSessions', () => extendAllSessions(db)),
+    pruned: await isolatedStep('hourly', 'pruneRateLimits', () => pruneRateLimits(db)),
+  }),
 }
 
 export async function runJob(name: keyof typeof JOBS): Promise<Record<string, unknown>> {

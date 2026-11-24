@@ -12,7 +12,7 @@ with no app and no account required.
 - Cancellation policy (free-cancel window, late-cancel and no-show fees) applied automatically, with one-tap waive.
 - **Rain-out**: cancel a session or a whole day; everyone is told, refunded, or gets their credit back.
 - Waitlists that offer freed seats to the next player automatically.
-- Roster (“Crew”): paste students from a spreadsheet or contacts and book them right away; private notes; who owes what.
+- Roster (“Crew”): paste students from a spreadsheet or contacts to save them as invites you send from your own phone or email; they join with your link or by booking. Add students to sessions (they confirm with one tap); private notes; who owes what.
 - Packages (prepaid credits) that apply automatically and enforce late cancels.
 - Payouts through Stripe Connect; **Free plan** ($0/month + 2% per payment) or **Pro** ($39/month, no platform fee).
 - Group thread per series (texted to players) and direct messages. Juniors never sign in, so their parent is always the person in the conversation.
@@ -73,12 +73,25 @@ npm run build
 
 CI runs the same against real Postgres.
 
+### On the iOS Simulator (macOS + Xcode)
+
+```bash
+npm run test:ios                   # native app, then mobile Safari
+npm run test:ios -- --only app     # or --only safari
+npm run test:ios -- --build        # rebuild and reinstall the app first
+```
+
+Books, pays, cancels, and checks the coach and parent guards by tapping through the real UI,
+then checks the database after each step. It uses a fresh in-memory database and its own dev
+server on port 3100, so your dev data and dev server are untouched. Screenshots and logs land
+in `e2e-results/<timestamp>/`. Pick a simulator with `IOS_SIM_DEVICE="iPhone 17 Pro"`.
+
 ## Production
 
 Required environment (the server refuses to start without it): see `.env.example`.
 - Database: `npm run db:migrate` against `DATABASE_URL` (`PGSSL=require` verifies certificates).
 - Stripe: Connect (Express) and a Pro price (`STRIPE_PRO_PRICE_ID`); webhook endpoint
-  `/api/webhooks/stripe` for `checkout.session.*`, `charge.refunded`, `charge.dispute.created`,
+  `/api/webhooks/stripe` for `checkout.session.*`, `payment_intent.succeeded`, `charge.refunded`, `charge.dispute.created`,
   `account.updated`, `customer.subscription.*`.
 - Scheduled jobs (`vercel.json`): `/api/cron/frequent` every 5 minutes, `/api/cron/hourly` hourly,
   authorized with `Authorization: Bearer $CRON_SECRET`.

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { OFFERING_KINDS, type LevelSystem, type OfferingKind, type PaymentRule } from '@/lib/format'
 import { addDays, todayIn } from '@/lib/time'
 import { maybeOne, tx, updateRow, type Db } from '../../db'
+import { forEachIsolated } from '../../isolate'
 import { fail } from '../../errors'
 import { newId } from '../../ids'
 import { cents, isoDate, optionalText, wallTime } from '../../schemas'
@@ -12,7 +13,6 @@ import { OPEN_SQL, SEAT_SQL } from '../bookings/status'
 import { requireProvider, type ProviderSettings } from '../providers/profile'
 import { expand, GENERATION_HORIZON_DAYS, type RecurrenceSpec } from './recurrence'
 
-export type { LevelSystem, OfferingKind, PaymentRule }
 
 const LEVEL_RANGES: Record<LevelSystem, [number, number]> = { utr: [1, 16.5], ntrp: [1, 7], wtn: [1, 40] }
 
@@ -245,11 +245,11 @@ export async function extendAllSessions(db: Db): Promise<number> {
     `SELECT ${OFFERING_COLUMNS}, o.generated_through AS "generatedThrough" FROM offerings o
      WHERE o.status = 'active' AND o.repeat_weekdays IS NOT NULL AND (o.end_date IS NULL OR o.end_date >= CURRENT_DATE)`)
   let created = 0
-  for (const offering of offerings) {
+  await forEachIsolated(offerings, 'offerings.extend_failed', (o) => o.id, async (offering) => {
     const today = todayIn(offering.timezone)
     const through = addDays(today, GENERATION_HORIZON_DAYS)
-    if (offering.generatedThrough && offering.generatedThrough >= through) continue
+    if (offering.generatedThrough && offering.generatedThrough >= through) return
     created += await tx((t) => generateSessions(t, offering, offering.generatedThrough ? addDays(offering.generatedThrough, 1) : today, through))
-  }
+  })
   return created
 }

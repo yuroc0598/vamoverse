@@ -94,6 +94,19 @@ function textOf(content: Anthropic.Beta.BetaContentBlock[]): string {
   return content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim()
 }
 
+/** Adds proposals to this reply's pending action (created on the first one). */
+async function saveProposals(t: Db, userId: string, threadId: string, pendingId: string | null, actions: StoredAction[]): Promise<string> {
+  if (pendingId) {
+    await t.query(`UPDATE assistant_pending_actions SET actions = actions || $2::jsonb WHERE id = $1`, [pendingId, JSON.stringify(actions)])
+    return pendingId
+  }
+  const id = newId('act')
+  await t.query(
+    `INSERT INTO assistant_pending_actions (id, user_id, thread_id, actions, expires_at) VALUES ($1, $2, $3, $4::jsonb, now() + make_interval(mins => $5))`,
+    [id, userId, threadId, JSON.stringify(actions), ACTION_TTL_MINUTES])
+  return id
+}
+
 /** Closes any unconfirmed proposal in the thread (the user moved on). Returns whether one was open. */
 async function dropOpenAction(db: Db, userId: string, threadId: string): Promise<boolean> {
   const rows = await db.query(`UPDATE assistant_pending_actions SET consumed_at = now() WHERE user_id = $1 AND thread_id = $2 AND consumed_at IS NULL RETURNING id`, [userId, threadId])
@@ -114,6 +127,7 @@ export async function sendToAssistant(db: Db, actor: Actor, text: string, ip: st
   await append(db, actor.userId, threadId, userMessage)
 
   const proposed: StoredAction[] = []
+  let pendingId: string | null = null
   let reply = ''
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await model.create({
@@ -125,22 +139,26 @@ export async function sendToAssistant(db: Db, actor: Actor, text: string, ip: st
     })
     const assistantMessage: StoredMessage = { role: 'assistant', content: response.content as Content }
     messages.push(assistantMessage)
-    await append(db, actor.userId, threadId, assistantMessage)
     reply = textOf(response.content) || reply
-
-    if (response.stop_reason === 'refusal') { reply = 'I can’t help with that one.'; break }
-    if (response.stop_reason === 'pause_turn') continue
-    const toolUses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use')
-    if (response.stop_reason !== 'tool_use' || !toolUses.length) break
+    const toolUses = response.stop_reason === 'tool_use'
+      ? response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use')
+      : []
+    if (!toolUses.length) {
+      await append(db, actor.userId, threadId, assistantMessage)
+      if (response.stop_reason === 'refusal') reply = 'I can’t help with that one.'
+      if (response.stop_reason === 'pause_turn') continue
+      break
+    }
 
     const results: ToolResult[] = []
+    const newProposals: StoredAction[] = []
     for (const use of toolUses) {
       const tool = byName.get(use.name)
       const { summary, ...input } = (use.input ?? {}) as Record<string, unknown>
       if (!tool) {
         results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Unknown tool.' })
       } else if (tool.mutates) {
-        proposed.push({
+        newProposals.push({
           toolUseId: use.id, command: tool.command, input, summary: typeof summary === 'string' ? summary.slice(0, 200) : '',
           description: await describeAction(actor, tool.command, input),
         })
@@ -157,17 +175,18 @@ export async function sendToAssistant(db: Db, actor: Actor, text: string, ip: st
     }
     const toolMessage: StoredMessage = { role: 'user', content: results }
     messages.push(toolMessage)
-    await append(db, actor.userId, threadId, toolMessage)
+    // A tool call is saved together with its results (and any proposal it made), so a request that
+    // dies part-way never leaves the conversation with an unanswered tool call.
+    const savedPendingId: string | null = pendingId
+    pendingId = await tx(async (t) => {
+      await append(t, actor.userId, threadId, assistantMessage)
+      await append(t, actor.userId, threadId, toolMessage)
+      return newProposals.length ? saveProposals(t, actor.userId, threadId, savedPendingId, newProposals) : savedPendingId
+    })
+    proposed.push(...newProposals)
   }
 
-  let pendingAction: PendingAction | null = null
-  if (proposed.length) {
-    const id = newId('act')
-    await db.query(
-      `INSERT INTO assistant_pending_actions (id, user_id, thread_id, actions, expires_at) VALUES ($1, $2, $3, $4::jsonb, now() + make_interval(mins => $5))`,
-      [id, actor.userId, threadId, JSON.stringify(proposed), ACTION_TTL_MINUTES])
-    pendingAction = { id, actions: proposed.map(toCard) }
-  }
+  const pendingAction: PendingAction | null = pendingId ? { id: pendingId, actions: proposed.map(toCard) } : null
   return { threadId, reply: reply || (pendingAction ? 'Here’s what I’ll do. Confirm to go ahead.' : 'Done.'), pendingAction }
 }
 

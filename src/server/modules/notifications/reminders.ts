@@ -18,10 +18,10 @@ interface Upcoming {
 export async function enqueueReminders(db: Db): Promise<number> {
   const rows = await db.query<Upcoming>(
     `SELECT b.id AS "bookingId", b.booked_by_user_id AS "userId", o.title, s.starts_at AS "startsAt", o.timezone,
-       COALESCE(c.name, o.location_name) AS location, p.display_name AS "playerName",
+       COALESCE(c.name, o.location_name) AS location, b.player_name AS "playerName",
        EXTRACT(EPOCH FROM (s.starts_at - now())) / 3600 AS "hoursAway"
      FROM bookings b JOIN sessions s ON s.id = b.session_id JOIN offerings o ON o.id = b.offering_id
-     JOIN players p ON p.id = b.player_id LEFT JOIN courts c ON c.id = o.court_id
+     LEFT JOIN courts c ON c.id = o.court_id
      WHERE b.status = 'confirmed' AND s.status = 'scheduled' AND s.starts_at > now() AND s.starts_at <= now() + interval '24 hours'`)
   for (const r of rows) {
     const twoHour = r.hoursAway <= 2

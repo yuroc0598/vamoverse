@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import { command } from '../../commands/define'
 import { profileSlug } from '../../schemas'
-import { requireProvider } from '../providers/profile'
-import { clientUpdateInput, contactRow, importClients, joinCrew, leaveCrew, listClients, listMyCoaches, updateClient } from './clients'
+import { clientUpdateInput, contactRow, importInvites, joinCrew, leaveCrew, listClients, listInvites, listMyCoaches, removeInvite, updateClient } from './clients'
 
 export const clientCommands = {
   'clients.list': command({
@@ -14,13 +13,29 @@ export const clientCommands = {
   }),
 
   'clients.import': command({
-    summary: 'Add students by name with an email or phone (one or many). They get a link to your page; you can book them right away.',
+    summary: 'Save students you want to invite (name plus email or phone). You send the invite from your own phone or email; they join your crew from your link.',
     access: 'provider',
     mutates: true,
     input: z.object({ contacts: z.array(contactRow).min(1).max(500) }),
-    run: async ({ actor, db }, { contacts }) => {
-      const provider = await requireProvider(db, actor.providerId)
-      return importClients(db, { id: provider.id, name: provider.displayName, slug: provider.slug }, contacts)
+    run: ({ actor, db }, { contacts }) => importInvites(db, actor.providerId, contacts),
+  }),
+
+  'clients.invites': command({
+    summary: 'People you’ve invited who haven’t joined your crew yet.',
+    access: 'provider',
+    mutates: false,
+    input: z.object({}),
+    run: ({ actor, db }) => listInvites(db, actor.providerId),
+  }),
+
+  'clients.removeInvite': command({
+    summary: 'Remove a pending invite.',
+    access: 'provider',
+    mutates: true,
+    input: z.object({ inviteId: z.string() }),
+    run: async ({ actor, db }, { inviteId }) => {
+      await removeInvite(db, actor.providerId, inviteId)
+      return { removed: true }
     },
   }),
 

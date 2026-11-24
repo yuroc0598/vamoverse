@@ -1,5 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as describeModule from '@/server/modules/assistant/describe'
 import { db } from '@/server/db'
 import { setModelClient, type ModelRequest } from '@/server/modules/assistant/model'
 import { buildTools } from '@/server/modules/assistant/tools'
@@ -31,7 +32,7 @@ const tool = (id: string, name: string, input: Record<string, unknown>) => ({ ty
 const lastToolResults = (req: ModelRequest) => (req.messages.at(-1)!.content as Anthropic.Beta.BetaToolResultBlockParam[])
 
 beforeEach(resetDb)
-afterEach(() => setModelClient(null))
+afterEach(() => { setModelClient(null); vi.restoreAllMocks() })
 
 describe('assistant tools', () => {
   it('exposes only commands the user may run, with confirmation summaries on changes', async () => {
@@ -128,6 +129,20 @@ describe('assistant conversations', () => {
     await as(coach)('assistant.send', { text: 'actually never mind' })
     expect(requests[2].messages.at(-1)!.content).toBe('(I didn\'t confirm the proposed changes.) actually never mind')
     await expect(as(coach)('assistant.resolve', { actionId: first.pendingAction!.id, decision: 'confirm' })).rejects.toMatchObject({ code: 'conflict' })
+  })
+
+  it('never leaves an unanswered tool call when a request dies while tools run', async () => {
+    const coach = await makeProvider()
+    const { sessionIds: [sessionId] } = await makeSeries(coach)
+    vi.spyOn(describeModule, 'describeAction').mockRejectedValueOnce(new Error('database went away'))
+    const requests = scripted([
+      () => [tool('t1', 'sessions__cancel', { sessionId, summary: 'Cancel it' })],
+      () => [text('Hi again.')],
+    ])
+    await expect(as(coach)('assistant.send', { text: 'cancel tonight' })).rejects.toThrow('database went away')
+    await as(coach)('assistant.send', { text: 'hello?' })
+    // The failed turn left nothing half-saved: no tool call without its result.
+    expect(requests.at(-1)!.messages.map((m) => m.role)).toEqual(['user', 'user'])
   })
 
   it('reports when the assistant is not configured', async () => {

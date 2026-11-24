@@ -18,7 +18,7 @@ const STATUS_LABEL: Record<string, { label: string; variant: 'success' | 'warnin
 }
 
 const PAYMENT_LABEL: Record<string, string> = {
-  due: 'Owes', failed: 'Payment failed', paid: 'Paid', paid_external: 'Paid (outside app)', credit: 'Credit', refunded: 'Refunded', waived: 'Waived', none: '',
+  due: 'Owes', failed: 'Payment failed', disputed: 'Disputed', paid: 'Paid', paid_external: 'Paid (outside app)', credit: 'Credit', refunded: 'Refunded', waived: 'Waived', none: '',
 }
 
 export function Roster({ entries, started }: { entries: RosterEntry[]; started: boolean }) {

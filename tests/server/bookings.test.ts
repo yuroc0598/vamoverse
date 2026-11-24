@@ -85,6 +85,7 @@ describe('pay when booking', () => {
     expect(lateCancel.summary).toBe('Late cancellation: $20 back (50% fee).')
     expect(await status(late.booking.id)).toMatchObject({ status: 'late_cancelled' })
     expect(await db.query(`SELECT refunded_cents, status FROM payments WHERE booking_id = $1`, [late.booking.id])).toEqual([{ refunded_cents: 2000, status: 'partially_refunded' }])
+    expect(await as(maya)('bookings.get', { bookingId: late.booking.id })).toMatchObject({ booking: { paymentStatus: 'paid' }, refundedCents: 2000 })
   })
 
   it('offers freed seats to the waitlist, expires unclaimed offers, and refunds payments that arrive too late', async () => {

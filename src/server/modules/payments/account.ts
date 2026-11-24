@@ -62,9 +62,9 @@ export async function moneySummary(db: Db, providerId: string, days = 30): Promi
      FROM payments WHERE provider_id = $1 AND status IN ('succeeded','partially_refunded','refunded','disputed')
        AND created_at > now() - make_interval(days => $2)`, [providerId, days])
   const owed = await db.query<MoneySummary['owed'][number]>(
-    `SELECT b.id AS "bookingId", p.display_name AS "playerName", o.title AS "sessionTitle", s.starts_at AS "startsAt",
+    `SELECT b.id AS "bookingId", b.player_name AS "playerName", o.title AS "sessionTitle", s.starts_at AS "startsAt",
        b.price_cents AS "amountCents", b.payment_rule AS "paymentRule", b.payment_status AS "paymentStatus"
-     FROM bookings b JOIN players p ON p.id = b.player_id JOIN sessions s ON s.id = b.session_id JOIN offerings o ON o.id = b.offering_id
+     FROM bookings b JOIN sessions s ON s.id = b.session_id JOIN offerings o ON o.id = b.offering_id
      WHERE b.provider_id = $1 AND b.payment_status IN ('due','failed') AND b.status IN ('confirmed','attended','late_cancelled','no_show')
        AND (b.payment_rule = 'external' OR b.payment_status = 'failed' OR s.starts_at < now())
      ORDER BY s.starts_at DESC LIMIT 100`, [providerId])

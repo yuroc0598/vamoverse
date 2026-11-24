@@ -6,13 +6,13 @@ import { formatDateTime } from '@/lib/time'
 import { requireProviderPage } from '@/server/auth/guards'
 import { runAs } from '@/server/commands/run'
 import { appUrl } from '@/server/config'
-import { ClientNotes, ImportContacts } from './crew-forms'
+import { ClientNotes, ImportContacts, InviteRow } from './crew-forms'
 
 export default async function CrewPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const actor = await requireProviderPage()
   const q = (await searchParams).q
   const run = runAs(actor)
-  const [clients, settings] = await Promise.all([run('clients.list', { search: q }), run('provider.settings', {})])
+  const [clients, invites, settings] = await Promise.all([run('clients.list', { search: q }), run('clients.invites', {}), run('provider.settings', {})])
   const joinUrl = `${appUrl()}/p/${settings.slug}`
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -22,7 +22,7 @@ export default async function CrewPage({ searchParams }: { searchParams: Promise
         <input id="crew-search" name="q" defaultValue={q} placeholder="Search by name" className="h-11 flex-1 rounded-xl border px-4 text-sm" />
       </form>
       {clients.length === 0 ? (
-        <EmptyState title={q ? 'No matches' : 'Your crew is empty'} description={q ? undefined : 'Paste your students below or share your page link. Anyone who books is added automatically.'} />
+        <EmptyState title={q ? 'No matches' : 'Your crew is empty'} description={q ? undefined : 'Invite your students below or share your page link. Anyone who books or joins is added automatically.'} />
       ) : (
         <ul className="divide-y rounded-2xl border bg-white">
           {clients.map((c) => (
@@ -43,7 +43,14 @@ export default async function CrewPage({ searchParams }: { searchParams: Promise
           ))}
         </ul>
       )}
-      <Section title="Add students" description="Paste from a spreadsheet or your contacts: one person per line with a name and an email or mobile number. They get a link to your page; you can book them right away.">
+      {invites.length > 0 && (
+        <Section title={`Not joined yet (${invites.length})`} description="Tap Text or Email to send the invite from your own phone. They appear in your crew once they join or book.">
+          <ul className="divide-y rounded-xl border">
+            {invites.map((invite) => <InviteRow key={invite.id} invite={invite} coachName={settings.displayName} joinUrl={joinUrl} />)}
+          </ul>
+        </Section>
+      )}
+      <Section title="Invite students" description="Paste from a spreadsheet or your contacts: one person per line with a name and an email or mobile number.">
         <ImportContacts />
       </Section>
     </div>

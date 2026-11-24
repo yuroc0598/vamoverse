@@ -1,4 +1,5 @@
 // Resolves who is making the current request (route handlers and server components).
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { authMode } from '../config'
 import { db } from '../db'
@@ -14,7 +15,8 @@ async function supabaseIdentity(): Promise<Identity | null> {
   return { id: user.id, email: user.email, phone: user.phone || null, name: meta.full_name || meta.name || meta.display_name }
 }
 
-export async function currentActor(): Promise<Actor | null> {
+/** The signed-in actor, resolved once per request (layouts and pages share it). */
+export const currentActor = cache(async (): Promise<Actor | null> => {
   // Reading cookies first marks every page that checks the user as per-request (never prerendered).
   const store = await cookies()
   if (authMode() === 'dev') {
@@ -24,4 +26,4 @@ export async function currentActor(): Promise<Actor | null> {
   }
   const identity = await supabaseIdentity()
   return identity ? ensureActor(db, identity) : null
-}
+})

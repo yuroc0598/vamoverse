@@ -3,7 +3,7 @@ import { db } from '@/server/db'
 import { extendAllSessions } from '@/server/modules/schedule/offerings'
 import { weekdayOf } from '@/lib/time'
 import { resetDb } from '../helpers/db'
-import { connectPayouts, inDays, makeProvider, makeUser, verifySafety } from '../helpers/factories'
+import { connectPayouts, forceBooking, inDays, makeProvider, makeUser, verifySafety } from '../helpers/factories'
 import { as } from '../helpers/run'
 
 beforeEach(resetDb)
@@ -53,8 +53,7 @@ describe('offerings', () => {
     const clinicSeries = await as(hitter)('offerings.create', clinic({ paymentRule: 'external', startDate: day, startTime: '17:00', durationMinutes: 60, repeatWeekdays: null }))
     const [clinicSession] = await db.query<{ id: string }>(`SELECT id FROM sessions WHERE offering_id = $1`, [clinicSeries.offering.id])
     const player = await makeUser('Maya')
-    await db.query(`INSERT INTO bookings (id, session_id, offering_id, provider_id, player_id, booked_by_user_id, status, payment_rule, price_cents)
-      VALUES ('bkg_test', $1, $2, $3, $4, $5, 'confirmed', 'external', 4000)`, [clinicSession.id, clinicSeries.offering.id, hitter.providerId, player.playerId, player.userId])
+    await forceBooking(clinicSession.id, player)
     const after = await as(null)('schedule.public', { slug: 'sam-hitter' })
     expect(after.sessions.filter((s) => s.kind === 'hitting')).toHaveLength(3)
   })
@@ -64,8 +63,7 @@ describe('offerings', () => {
     const { offering } = await as(coach)('offerings.create', clinic({ paymentRule: 'external' }))
     const [first] = await db.query<{ id: string }>(`SELECT id FROM sessions WHERE offering_id = $1 ORDER BY starts_at LIMIT 1`, [offering.id])
     const player = await makeUser('Maya')
-    await db.query(`INSERT INTO bookings (id, session_id, offering_id, provider_id, player_id, booked_by_user_id, status, payment_rule, price_cents)
-      VALUES ('bkg_test', $1, $2, $3, $4, $5, 'confirmed', 'external', 4000)`, [first.id, offering.id, coach.providerId, player.playerId, player.userId])
+    await forceBooking(first.id, player)
 
     const priced = await as(coach)('offerings.update', { offeringId: offering.id, priceCents: 4500 })
     expect(priced.keptWithBookings).toBe(0)

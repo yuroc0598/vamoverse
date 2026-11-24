@@ -52,7 +52,11 @@ export default async function BookingPage({ params, searchParams }: { params: Pr
         <Link href={`/p/${session.providerSlug}`} className="text-sm text-court-500 hover:underline">{session.providerName}</Link>
         <h2 className="mb-4 text-lg font-semibold">{session.title}</h2>
         <SessionDetails session={session} showSeats={false} />
-        {booking.paymentStatus === 'paid' && <p className="mt-4 text-sm text-muted-foreground">Paid {formatMoney(booking.priceCents)}.</p>}
+        {booking.paymentStatus === 'paid' && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Paid {formatMoney(booking.priceCents)}{detail.refundedCents > 0 && `; ${formatMoney(detail.refundedCents)} refunded`}.
+          </p>
+        )}
         {booking.paymentStatus === 'credit' && <p className="mt-4 text-sm text-muted-foreground">Paid with a package credit.</p>}
       </section>
       <BookingActions bookingId={booking.id} token={token ?? null} status={booking.status} paymentRule={booking.paymentRule}

@@ -63,3 +63,7 @@ coverage
 
 # Local dev database (PGlite)
 .data
+
+# iOS end-to-end run (npm run test:ios)
+.next-e2e
+e2e-results

@@ -8,22 +8,22 @@ import { parseContacts } from '@/lib/contacts'
 
 export function ImportContacts() {
   const router = useRouter()
-  const importClients = useCommand('clients.import')
+  const importInvites = useCommand('clients.import')
   const [text, setText] = useState('')
   const { rows, skipped } = parseContacts(text)
   return (
     <form className="space-y-3" onSubmit={async (e) => {
       e.preventDefault()
-      const result = await importClients.run({ contacts: rows })
+      const result = await importInvites.run({ contacts: rows })
       if (!result) return
       const failed = result.failed.length ? ` Couldn’t add: ${result.failed.map((f) => `${f.name} (${f.reason})`).join(', ')}.` : ''
-      window.alert(`Added ${result.added}.${result.alreadyClients ? ` ${result.alreadyClients} were already in your crew.` : ''}${failed}`)
+      window.alert(`Saved ${result.added} invite${result.added === 1 ? '' : 's'}.${result.duplicates ? ` ${result.duplicates} already invited.` : ''}${failed} Send them from the list below.`)
       setText('')
       router.refresh()
     }}>
       <TextAreaField label="Students" placeholder={'Maya Chen, maya@example.com\nSam Lee, (415) 555-0100'} value={text} onChange={(e) => setText(e.target.value)} />
       {text && <p className="text-xs text-muted-foreground">{rows.length} ready to add{skipped.length ? ` · ${skipped.length} line(s) need an email or phone` : ''}</p>}
-      <Button disabled={!rows.length || importClients.pending}>{importClients.pending ? 'Adding…' : `Add ${rows.length || ''} student${rows.length === 1 ? '' : 's'}`}</Button>
+      <Button disabled={!rows.length || importInvites.pending}>{importInvites.pending ? 'Saving…' : `Save ${rows.length || ''} invite${rows.length === 1 ? '' : 's'}`}</Button>
     </form>
   )
 }
@@ -48,5 +48,26 @@ export function ClientNotes({ playerId, notes }: { playerId: string; notes: stri
       <input id={`notes-${playerId}`} autoFocus value={value} onChange={(e) => setValue(e.target.value)} className="h-9 flex-1 rounded-lg border px-3 text-sm" placeholder="Only you can see this" />
       <Button size="sm" disabled={save.pending}>Save</Button>
     </form>
+  )
+}
+
+/** Opens the coach's own Messages or mail app with the invite filled in; Vamoverse sends nothing on their behalf. */
+export function InviteRow({ invite, coachName, joinUrl }: { invite: { id: string; name: string; email: string | null; phone: string | null }; coachName: string; joinUrl: string }) {
+  const router = useRouter()
+  const remove = useCommand('clients.removeInvite')
+  const message = `Hi ${invite.name.split(' ')[0]}, it’s ${coachName}. I’m using Vamoverse for lessons and clinics now. Book and pay here: ${joinUrl}`
+  return (
+    <li className="flex items-center justify-between gap-3 p-3 text-sm">
+      <div className="min-w-0">
+        <div className="font-medium">{invite.name}</div>
+        <div className="truncate text-xs text-muted-foreground">{[invite.email, invite.phone].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div className="flex shrink-0 gap-3">
+        {invite.phone && <a className="text-court-500 underline" href={`sms:${invite.phone}?&body=${encodeURIComponent(message)}`}>Text</a>}
+        {invite.email && <a className="text-court-500 underline" href={`mailto:${invite.email}?subject=${encodeURIComponent(`Book with ${coachName}`)}&body=${encodeURIComponent(message)}`}>Email</a>}
+        <button className="text-muted-foreground hover:text-foreground" disabled={remove.pending}
+          onClick={async () => { if (await remove.run({ inviteId: invite.id })) router.refresh() }}>Remove</button>
+      </div>
+    </li>
   )
 }

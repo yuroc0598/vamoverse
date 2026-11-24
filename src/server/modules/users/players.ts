@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { maybeOne, updateRow, type Db } from '../../db'
 import { fail } from '../../errors'
 import { gender, isoDate, personName, ratings } from '../../schemas'
-import { setDisplayName, type Actor } from './accounts'
+import { OPEN_SQL } from '../bookings/status'
+import type { Actor } from './accounts'
 
 export interface Player {
   id: string
@@ -62,8 +63,20 @@ export async function updatePlayer(db: Db, actor: Actor, input: z.output<typeof 
   await updateRow(db, 'players', player.id, {
     birth_date: input.birthDate, gender: input.gender, utr_singles: input.utrSingles, utr_doubles: input.utrDoubles,
     ntrp: input.ntrp, wtn: input.wtn, utr_profile_id: input.utrProfileId,
-    display_name: player.userId ? undefined : input.displayName, // an adult's name changes on the account too
   })
-  if (input.displayName && player.userId) await setDisplayName(db, player.userId, input.displayName)
+  if (input.displayName) await renamePlayer(db, player.id, input.displayName)
   return (await getPlayer(db, player.id))!
+}
+
+/** Renames a player wherever the name shows: profile, account (for adults), and upcoming bookings. */
+export async function renamePlayer(db: Db, playerId: string, name: string): Promise<void> {
+  const [player] = await db.query<{ userId: string | null }>(
+    `UPDATE players SET display_name = $2, updated_at = now() WHERE id = $1 RETURNING user_id AS "userId"`, [playerId, name])
+  if (player?.userId) await updateRow(db, 'users', player.userId, { display_name: name })
+  await db.query(`UPDATE bookings SET player_name = $2, updated_at = now() WHERE player_id = $1 AND status IN ${OPEN_SQL}`, [playerId, name])
+}
+
+/** Removes players' names from booking history (deleted juniors and accounts); attendance and revenue rows stay. */
+export async function forgetPlayersInBookings(db: Db, playerIds: string[]): Promise<void> {
+  if (playerIds.length) await db.query(`UPDATE bookings SET player_name = 'Removed player', updated_at = now() WHERE player_id = ANY($1)`, [playerIds])
 }

@@ -5,6 +5,7 @@ import { ensureActor, type Actor } from '@/server/modules/users/accounts'
 import type { ProviderActor } from '@/server/commands/define'
 import { daysFromToday } from '@/lib/time'
 import { simulate } from '@/server/modules/payments/simulator'
+import { applyAccountStatus } from '@/server/modules/payments/settlement'
 import { as } from './run'
 
 let counter = 0
@@ -30,6 +31,12 @@ export async function connectPayouts(provider: ProviderActor): Promise<void> {
   await simulate(db, 'connect', provider.providerId)
 }
 
+/** What Stripe's account.updated webhook does when a coach's payouts turn off or back on. */
+export async function setPayouts(provider: ProviderActor, enabled: boolean): Promise<void> {
+  const [row] = await db.query<{ a: string }>(`SELECT stripe_account_id AS a FROM providers WHERE id = $1`, [provider.providerId])
+  await applyAccountStatus(db, row.a, enabled, enabled)
+}
+
 /** Completes a checkout exactly as a Stripe checkout.session.completed webhook would. */
 export async function payCheckout(checkoutUrl: string | null): Promise<void> {
   const id = new URL(checkoutUrl!).searchParams.get('id')!
@@ -53,9 +60,31 @@ export async function makePaidSeries(overrides: Record<string, unknown> = {}) {
   return { coach, ...(await makeSeries(coach, { paymentRule: 'pay_now', priceCents: 4000, ...overrides })) }
 }
 
+/** Writes a confirmed booking directly, bypassing the engine (for states the app can't reach, or plain setup). */
+export async function forceBooking(sessionId: string, player: Actor): Promise<string> {
+  const id = newId('bkg')
+  await db.query(
+    `INSERT INTO bookings (id, session_id, offering_id, provider_id, player_id, player_name, booked_by_user_id, status, payment_rule, price_cents)
+     SELECT $1, s.id, s.offering_id, s.provider_id, $3, $4, $5, 'confirmed', o.payment_rule, s.price_cents
+     FROM sessions s JOIN offerings o ON o.id = s.offering_id WHERE s.id = $2`,
+    [id, sessionId, player.playerId, player.displayName, player.userId])
+  return id
+}
+
 /** Moves a session to start `hours` from now (inside the cancellation window), independent of time of day. */
 export async function moveSessionSoon(sessionId: string, hours = 2): Promise<void> {
   await db.query(`UPDATE sessions SET starts_at = now() + make_interval(hours => $2), ends_at = now() + make_interval(hours => $2) + interval '1 hour' WHERE id = $1`, [sessionId, hours])
+}
+
+/** A $90 pay-after private booked by Maya, card saved, with the coach's payouts on. */
+export async function bookPayAfterPrivate() {
+  const coach = await makeProvider()
+  await connectPayouts(coach)
+  const { sessionIds: [sessionId] } = await makeSeries(coach, { kind: 'private', capacity: 1, paymentRule: 'pay_after', priceCents: 9000 })
+  const maya = await makeUser('Maya')
+  const booked = await as(maya)('bookings.create', { sessionId })
+  await payCheckout(booked.checkoutUrl)
+  return { coach, maya, sessionId, bookingId: booked.booking.id }
 }
 
 /** Moves a session into the past (for attendance and completion). */

@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { command } from '../../commands/define'
 import { profileSlug } from '../../schemas'
 import { tx } from '../../db'
-import { lockSession, notifySessionMoved, promoteWaitlist } from '../bookings/engine'
+import { fail } from '../../errors'
+import { hasBookedOverlap, lockSession, notifySessionMoved, promoteWaitlist } from '../bookings/engine'
 import { requirePublicProvider } from '../providers/profile'
 import { archiveOffering, createOffering, listOfferings, offeringInput, offeringUpdateInput, requireOwnOffering, updateOffering } from './offerings'
 import { listProviderSessions, listPublicSessions, requireOwnSession, sessionUpdateInput, updateSession } from './sessions'
@@ -96,6 +97,10 @@ export const scheduleCommands = {
     run: ({ actor }, input) => tx(async (t) => {
       await lockSession(t, input.sessionId) // capacity checks must see concurrent bookings
       const result = await updateSession(t, actor.providerId, input)
+      if (result.moved && result.session.seatsTaken > 0
+        && await hasBookedOverlap(t, actor.providerId, result.session.startsAt, result.session.endsAt, result.session.id)) {
+        throw fail.conflict('That time overlaps another booked session.')
+      }
       const notified = result.moved ? await notifySessionMoved(t, result.session) : 0
       if (input.capacity !== undefined) await promoteWaitlist(t, await lockSession(t, input.sessionId))
       return { ...result, notified }

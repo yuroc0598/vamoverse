@@ -4,6 +4,7 @@
 import { formatMoney, KIND_LABELS } from '@/lib/format'
 import { formatDateTime } from '@/lib/time'
 import { maybeOne, tx, type Db } from '../../db'
+import { forEachIsolated } from '../../isolate'
 import { fail } from '../../errors'
 import { newId } from '../../ids'
 import { enqueue } from '../notifications/outbox'
@@ -12,18 +13,21 @@ import { bookingPayment, createCheckoutPayment, createOffSessionPayment, default
 import { requireSession, type SessionView } from '../schedule/sessions'
 import { assertJuniorBookable } from '../users/guardians'
 import { getPlayer, type Player } from '../users/players'
+import { addClient } from '../clients/clients'
 import { checkEligibility } from './eligibility'
 import { bookingPath } from './links'
 import { OPEN_STATUSES, SEAT_SQL, SEAT_STATUSES, type BookingStatus } from './status'
 
-export type PaymentStatus = 'none' | 'due' | 'paid' | 'paid_external' | 'credit' | 'refunded' | 'waived' | 'failed'
+type PaymentStatus = 'none' | 'due' | 'paid' | 'paid_external' | 'credit' | 'refunded' | 'waived' | 'failed' | 'disputed'
 
 export interface Booking {
   id: string
   sessionId: string
   offeringId: string
   providerId: string
-  playerId: string
+  /** Null only for history whose player was later deleted. */
+  playerId: string | null
+  playerName: string
   bookedByUserId: string
   status: BookingStatus
   paymentRule: SessionView['paymentRule']
@@ -37,7 +41,7 @@ export interface Booking {
 }
 
 export const BOOKING_COLUMNS = `b.id, b.session_id AS "sessionId", b.offering_id AS "offeringId", b.provider_id AS "providerId",
-  b.player_id AS "playerId", b.booked_by_user_id AS "bookedByUserId", b.status, b.payment_rule AS "paymentRule",
+  b.player_id AS "playerId", b.player_name AS "playerName", b.booked_by_user_id AS "bookedByUserId", b.status, b.payment_rule AS "paymentRule",
   b.price_cents AS "priceCents", b.payment_status AS "paymentStatus", b.package_purchase_id AS "packagePurchaseId",
   b.hold_expires_at AS "holdExpiresAt", b.offer_expires_at AS "offerExpiresAt", b.waitlisted_at AS "waitlistedAt", b.created_at AS "createdAt"`
 
@@ -87,6 +91,22 @@ async function closeBooking(t: Db, bookingId: string, status: BookingStatus, pay
   await t.query(`UPDATE bookings SET status = $2, payment_status = $3, cancelled_at = now(), hold_expires_at = NULL, offer_expires_at = NULL, updated_at = now() WHERE id = $1`,
     [bookingId, status, paymentStatus])
 }
+
+/**
+ * A coach can't be in two places: is another booked session of this provider overlapping the
+ * time? Serialized per provider (overlapping sessions are different rows, so row locks can't).
+ */
+export async function hasBookedOverlap(t: Db, providerId: string, startsAt: Date, endsAt: Date, excludeSessionId: string): Promise<boolean> {
+  await t.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [providerId])
+  return Boolean(await maybeOne(t,
+    `SELECT 1 FROM sessions s JOIN bookings b ON b.session_id = s.id AND b.status IN ${SEAT_SQL}
+     WHERE s.provider_id = $1 AND s.id <> $2 AND s.status = 'scheduled' AND s.starts_at < $4 AND s.ends_at > $3`,
+    [providerId, excludeSessionId, startsAt, endsAt]))
+}
+
+/** Giving someone a one-on-one seat must not double-book the coach. */
+const oneOnOneClash = (t: Db, session: SessionView) =>
+  session.capacity === 1 ? hasBookedOverlap(t, session.providerId, session.startsAt, session.endsAt, session.id) : Promise.resolve(false)
 
 async function seatGenders(t: Db, sessionId: string): Promise<(string | null)[]> {
   const rows = await t.query<{ gender: string | null }>(
@@ -142,22 +162,22 @@ async function decideAllocation(t: Db, session: SessionView, payerUserId: string
   return { status: holdStatus, paymentStatus: 'due', packagePurchaseId: null, expiresAt, checkout: session.paymentRule === 'pay_now' ? 'booking' : 'card_setup' }
 }
 
-/** Writes an allocation onto a booking row (new or existing). Returns the checkout payment to open, if any. */
+/**
+ * Writes an allocation onto a booking row (new or existing). A live hold (someone paying right
+ * now) gets its checkout payment here; offers and invites create theirs when the player taps Pay,
+ * so system flows never depend on the coach's payment setup. Returns the checkout payment, if any.
+ */
 async function applyAllocation(t: Db, bookingId: string, session: SessionView, bookedByUserId: string, a: Allocation): Promise<string | null> {
   await t.query(
     `UPDATE bookings SET status = $2, payment_status = $3, package_purchase_id = $4,
        hold_expires_at = CASE WHEN $2 = 'held' THEN $5::timestamptz END,
        offer_expires_at = CASE WHEN $2 IN ('offered','invited') THEN $5::timestamptz END, updated_at = now()
      WHERE id = $1`, [bookingId, a.status, a.paymentStatus, a.packagePurchaseId, a.expiresAt])
-  if (!a.checkout) return null
+  if (!a.checkout || a.status !== 'held') return null
   return createCheckoutPayment(t, {
     providerId: session.providerId, payerUserId: bookedByUserId, purpose: a.checkout,
     amountCents: a.checkout === 'booking' ? session.priceCents : 0, bookingId,
   })
-}
-
-async function addClient(t: Db, providerId: string, playerId: string, source: 'booking' | 'manual') {
-  await t.query(`INSERT INTO clients (provider_id, player_id, source) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [providerId, playerId, source])
 }
 
 function outcomeMessage(status: BookingStatus, session: SessionView, checkout: string | null): string {
@@ -188,6 +208,7 @@ export async function placeBooking(t: Db, input: {
     return { booking: existing, paymentId: pending?.id ?? null, message: outcomeMessage(existing.status, session, pending?.id ?? null) }
   }
   if (session.status !== 'scheduled') throw fail.conflict('This session was cancelled.')
+  if (session.offeringStatus !== 'active') throw fail.conflict('This session is no longer offered.')
   if (new Date(session.startsAt).getTime() <= Date.now()) throw fail.conflict('This session has already started.')
   await assertJuniorBookable(t, player)
 
@@ -197,10 +218,10 @@ export async function placeBooking(t: Db, input: {
 
   const id = newId('bkg')
   await t.query(
-    `INSERT INTO bookings (id, session_id, offering_id, provider_id, player_id, booked_by_user_id, status, payment_rule, price_cents)
-     VALUES ($1, $2, $3, $4, $5, $6, 'requested', $7, $8)`,
-    [id, session.id, session.offeringId, session.providerId, player.id, bookedByUserId, session.paymentRule, session.priceCents])
-  await addClient(t, session.providerId, player.id, input.byProvider ? 'manual' : 'booking')
+    `INSERT INTO bookings (id, session_id, offering_id, provider_id, player_id, player_name, booked_by_user_id, status, payment_rule, price_cents)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'requested', $8, $9)`,
+    [id, session.id, session.offeringId, session.providerId, player.id, player.displayName, bookedByUserId, session.paymentRule, session.priceCents])
+  if (!input.byProvider) await addClient(t, session.providerId, player.id, 'booking')
 
   let paymentId: string | null = null
   if (eligibility.needsApproval && !input.byProvider) {
@@ -209,19 +230,10 @@ export async function placeBooking(t: Db, input: {
     if (input.byProvider) throw fail.conflict('This session is full. Raise its capacity first.')
     await t.query(`UPDATE bookings SET status = 'waitlisted', waitlisted_at = clock_timestamp() WHERE id = $1`, [id])
   } else {
-    if (session.capacity === 1) {
-      // Overlapping one-on-one slots are different session rows: serialize per provider.
-      await t.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [session.providerId])
-      const clash = await maybeOne(t,
-        `SELECT 1 FROM sessions s JOIN bookings b ON b.session_id = s.id AND b.status IN ${SEAT_SQL}
-         WHERE s.provider_id = $1 AND s.id <> $2 AND s.status = 'scheduled' AND s.starts_at < $4 AND s.ends_at > $3`,
-        [session.providerId, session.id, session.startsAt, session.endsAt])
-      if (clash) throw fail.conflict('That time was just taken. Pick another slot.')
-    }
-    // A coach adding someone never spends that person's credits or card: money waits for the player's yes.
-    const needsConsent = input.byProvider && (session.paymentRule === 'pay_now' || session.paymentRule === 'pay_after')
-    const allocation: Allocation = needsConsent
-      ? { status: 'invited', paymentStatus: 'due', packagePurchaseId: null, expiresAt: inviteExpiry(session), checkout: null }
+    if (await oneOnOneClash(t, session)) throw fail.conflict('That time was just taken. Pick another slot.')
+    // A coach adding someone is always an invite: nothing is booked, owed, or charged until the player says yes.
+    const allocation: Allocation = input.byProvider
+      ? { status: 'invited', paymentStatus: session.paymentRule === 'free' ? 'none' : 'due', packagePurchaseId: null, expiresAt: inviteExpiry(session), checkout: null }
       : await decideAllocation(t, session, bookedByUserId, input.useCredit, 'held')
     paymentId = await applyAllocation(t, id, session, bookedByUserId, allocation)
     if (allocation.status === 'confirmed') {
@@ -230,7 +242,7 @@ export async function placeBooking(t: Db, input: {
       if (!input.byProvider) await notifyProvider(t, session, 'booking.new', `${player.displayName} booked`, `${session.title}, ${when(session)}.`)
     } else if (allocation.status === 'invited') {
       await notifyBooker(t, { id, bookedByUserId }, 'booking.invited', `${session.providerName} added ${player.displayName} to ${session.title}`,
-        `${when(session)}, ${formatMoney(session.priceCents)}${session.paymentRule === 'pay_after' ? ' after the session' : ''}. Confirm to keep your spot.`)
+        `${when(session)}${session.paymentRule === 'free' ? '' : `, ${formatMoney(session.priceCents)}${session.paymentRule === 'pay_after' ? ' after the session' : ''}`}. Confirm to keep your spot.`)
     }
   }
   const booking = (await getBooking(t, id))!
@@ -240,13 +252,14 @@ export async function placeBooking(t: Db, input: {
 /** Offers freed seats to the waitlist, first come first served, skipping players who no longer fit. */
 export async function promoteWaitlist(t: Db, session: SessionView): Promise<void> {
   if (session.status !== 'scheduled' || new Date(session.startsAt).getTime() <= Date.now()) return
+  if (await oneOnOneClash(t, session)) return
   const waiting = await t.query<Booking>(
     `SELECT ${BOOKING_COLUMNS} FROM bookings b WHERE b.session_id = $1 AND b.status = 'waitlisted' ORDER BY b.waitlisted_at, b.created_at FOR UPDATE`, [session.id])
   for (const candidate of waiting) {
     const genders = await seatGenders(t, session.id)
     if (genders.length >= session.capacity) return
-    const player = (await getPlayer(t, candidate.playerId))!
-    if (!checkEligibility(session, player, genders.filter((g) => g === player.gender).length).ok) continue
+    const player = candidate.playerId ? await getPlayer(t, candidate.playerId) : null
+    if (!player || !checkEligibility(session, player, genders.filter((g) => g === player.gender).length).ok) continue
     const allocation = await decideAllocation(t, session, candidate.bookedByUserId, true, 'offered')
     await applyAllocation(t, candidate.id, session, candidate.bookedByUserId, allocation)
     if (allocation.status === 'confirmed') {
@@ -295,8 +308,27 @@ async function cancelPendingCheckouts(t: Db, bookingId: string) {
   await t.query(`UPDATE payments SET status = 'canceled', updated_at = now() WHERE booking_id = $1 AND status = 'pending' AND mode = 'checkout'`, [bookingId])
 }
 
+/**
+ * Charges the saved card later (after the session, or a fee). Without a card the booker is
+ * asked for one; if the coach's payouts are off, the charge waits for them and the coach is told.
+ */
+async function chargeLater(t: Db, booking: Booking, session: SessionView, purpose: 'booking' | 'late_cancel_fee' | 'no_show_fee', amountCents: number, effects: Effects): Promise<PaymentStatus> {
+  const outcome = await createOffSessionPayment(t, { providerId: booking.providerId, payerUserId: booking.bookedByUserId, purpose, amountCents, bookingId: booking.id })
+  if ('blocked' in outcome) {
+    await notifyBooker(t, booking, 'payment.card_needed', `Add a card for ${session.title}`, `${formatMoney(amountCents)} is due to ${session.providerName}. Add a card from your booking.`)
+    return 'failed'
+  }
+  if (outcome.deferred) {
+    await notifyProvider(t, session, 'payouts.needed', 'Finish payout setup to get paid',
+      `${formatMoney(amountCents)} for ${session.title} will be charged once your payouts are active again.`, `payouts.needed:${booking.id}:${purpose}`)
+  } else {
+    effects.charges.push(outcome.paymentId)
+  }
+  return 'due'
+}
+
 /** Applies money consequences of ending a booking. */
-async function settleEnd(t: Db, booking: Booking, terms: Pick<CancellationTerms, 'refundCents' | 'returnCredit' | 'feeCents'>, feePurpose: 'late_cancel_fee' | 'no_show_fee'): Promise<{ effects: Effects; paymentStatus: PaymentStatus }> {
+async function settleEnd(t: Db, booking: Booking, session: SessionView, terms: Pick<CancellationTerms, 'refundCents' | 'returnCredit' | 'feeCents'>, feePurpose: 'late_cancel_fee' | 'no_show_fee'): Promise<{ effects: Effects; paymentStatus: PaymentStatus }> {
   const effects = noEffects()
   let paymentStatus = booking.paymentStatus
   if (booking.paymentStatus === 'paid' && terms.refundCents > 0) {
@@ -313,11 +345,7 @@ async function settleEnd(t: Db, booking: Booking, terms: Pick<CancellationTerms,
   }
   if (booking.paymentStatus === 'due') {
     paymentStatus = 'none'
-    if (terms.feeCents > 0) {
-      const charge = await createOffSessionPayment(t, { providerId: booking.providerId, payerUserId: booking.bookedByUserId, purpose: feePurpose, amountCents: terms.feeCents, bookingId: booking.id })
-      if (charge) effects.charges.push(charge)
-      paymentStatus = charge ? 'due' : 'failed'
-    }
+    if (terms.feeCents > 0) paymentStatus = await chargeLater(t, booking, session, feePurpose, terms.feeCents, effects)
   }
   await cancelPendingCheckouts(t, booking.id)
   return { effects, paymentStatus }
@@ -329,14 +357,13 @@ export async function cancelBooking(t: Db, bookingId: string, opts: { byProvider
   if (!OPEN_STATUSES.includes(booking.status)) throw fail.conflict('This booking is already closed.')
   if (!opts.byProvider && new Date(session.startsAt).getTime() <= Date.now()) throw fail.conflict('This session has started; ask the coach to update it.')
   const terms = cancellationTerms(booking, session, opts)
-  const { effects, paymentStatus } = await settleEnd(t, booking, terms, 'late_cancel_fee')
+  const { effects, paymentStatus } = await settleEnd(t, booking, session, terms, 'late_cancel_fee')
   await closeBooking(t, booking.id, terms.newStatus, paymentStatus)
-  const player = (await getPlayer(t, booking.playerId))!
   if (opts.byProvider) {
-    await notifyBooker(t, booking, 'booking.removed', `${session.providerName} removed ${player.displayName} from ${session.title}`, `${when(session)}. ${terms.summary}`)
+    await notifyBooker(t, booking, 'booking.removed', `${session.providerName} removed ${booking.playerName} from ${session.title}`, `${when(session)}. ${terms.summary}`)
   } else {
     await notifyBooker(t, booking, 'booking.cancelled', `Cancelled: ${session.title}`, `${when(session)}. ${terms.summary}`)
-    await notifyProvider(t, session, 'booking.cancelled', `${player.displayName} cancelled`, `${session.title}, ${when(session)}.${terms.late ? ' Late cancellation.' : ''}`)
+    await notifyProvider(t, session, 'booking.cancelled', `${booking.playerName} cancelled`, `${session.title}, ${when(session)}.${terms.late ? ' Late cancellation.' : ''}`)
   }
   if (SEAT_STATUSES.includes(booking.status)) await promoteWaitlist(t, session)
   return { booking: (await getBooking(t, booking.id))!, terms, effects }
@@ -350,7 +377,7 @@ export async function cancelSession(t: Db, providerId: string, sessionId: string
   const effects = noEffects()
   const open = await t.query<Booking>(`SELECT ${BOOKING_COLUMNS} FROM bookings b WHERE b.session_id = $1 AND b.status = ANY($2) FOR UPDATE`, [sessionId, OPEN_STATUSES])
   for (const booking of open) {
-    const settled = await settleEnd(t, booking, { refundCents: booking.priceCents, returnCredit: true, feeCents: 0 }, 'late_cancel_fee')
+    const settled = await settleEnd(t, booking, session, { refundCents: booking.priceCents, returnCredit: true, feeCents: 0 }, 'late_cancel_fee')
     addEffects(effects, settled.effects)
     await closeBooking(t, booking.id, 'cancelled', settled.paymentStatus)
     const money = booking.paymentStatus === 'paid' ? ' You’ll get a full refund.' : booking.paymentStatus === 'credit' ? ' Your package credit is returned.' : ''
@@ -373,6 +400,7 @@ export async function notifySessionMoved(t: Db, session: SessionView): Promise<n
 export async function approveRequest(t: Db, providerId: string, bookingId: string): Promise<Booking> {
   const { session, booking } = await lockBooking(t, bookingId, providerId)
   if (booking.status !== 'requested') throw fail.conflict('This request was already handled.')
+  if (await oneOnOneClash(t, session)) throw fail.conflict('You already have a booked session at that time.')
   if ((await seatGenders(t, session.id)).length >= session.capacity) {
     await t.query(`UPDATE bookings SET status = 'waitlisted', waitlisted_at = clock_timestamp(), updated_at = now() WHERE id = $1`, [booking.id])
     await notifyBooker(t, booking, 'booking.approved', `Approved for ${session.title}`, `${when(session)}. It’s full right now, so you’re first in line on the waitlist.`)
@@ -394,20 +422,17 @@ export async function declineRequest(t: Db, providerId: string, bookingId: strin
   return (await getBooking(t, bookingId))!
 }
 
-/** Player accepts a coach's invite: uses a credit or saved card if available, otherwise returns a checkout to open. */
-export async function acceptInvite(t: Db, bookingId: string): Promise<{ booking: Booking; paymentId: string | null }> {
+/** Player accepts a coach's invite: uses a credit or saved card if available; otherwise they still need to pay. */
+export async function acceptInvite(t: Db, bookingId: string): Promise<{ booking: Booking; needsPayment: boolean }> {
   const { session, booking } = await lockBooking(t, bookingId)
   if (booking.status !== 'invited') throw fail.conflict('This invite was already answered.')
-  const pending = await maybeOne<{ id: string }>(t, `SELECT id FROM payments WHERE booking_id = $1 AND status = 'pending' AND mode = 'checkout'`, [booking.id])
-  if (pending) return { booking, paymentId: pending.id }
   const allocation = await decideAllocation(t, session, booking.bookedByUserId, true, 'invited')
-  const paymentId = await applyAllocation(t, booking.id, session, booking.bookedByUserId,
+  await applyAllocation(t, booking.id, session, booking.bookedByUserId,
     allocation.status === 'invited' ? { ...allocation, expiresAt: booking.offerExpiresAt ?? inviteExpiry(session) } : allocation)
   if (allocation.status === 'confirmed') {
-    const player = (await getPlayer(t, booking.playerId))!
-    await notifyProvider(t, session, 'booking.new', `${player.displayName} confirmed`, `${session.title}, ${when(session)}.`)
+    await notifyProvider(t, session, 'booking.new', `${booking.playerName} confirmed`, `${session.title}, ${when(session)}.`)
   }
-  return { booking: (await getBooking(t, booking.id))!, paymentId }
+  return { booking: (await getBooking(t, booking.id))!, needsPayment: allocation.status !== 'confirmed' }
 }
 
 /** Player declines an invite from the coach. */
@@ -416,8 +441,7 @@ export async function declineInvite(t: Db, bookingId: string): Promise<Booking> 
   if (booking.status !== 'invited') throw fail.conflict('This invite was already answered.')
   await cancelPendingCheckouts(t, booking.id)
   await t.query(`UPDATE bookings SET status = 'declined', offer_expires_at = NULL, updated_at = now() WHERE id = $1`, [booking.id])
-  const player = (await getPlayer(t, booking.playerId))!
-  await notifyProvider(t, session, 'booking.declined', `${player.displayName} can’t make it`, `${session.title}, ${when(session)}.`)
+  await notifyProvider(t, session, 'booking.declined', `${booking.playerName} can’t make it`, `${session.title}, ${when(session)}.`)
   await promoteWaitlist(t, session)
   return (await getBooking(t, booking.id))!
 }
@@ -437,19 +461,10 @@ export async function markAttendance(t: Db, providerId: string, bookingId: strin
   let paymentStatus = booking.paymentStatus
   if (booking.paymentStatus === 'due' && booking.paymentRule === 'pay_after') {
     const amount = outcome === 'attended' ? booking.priceCents : waiveFee ? 0 : pct(booking.priceCents, session.noShowFeePct)
-    if (amount > 0) {
-      const charge = await createOffSessionPayment(t, {
-        providerId, payerUserId: booking.bookedByUserId, purpose: outcome === 'attended' ? 'booking' : 'no_show_fee', amountCents: amount, bookingId,
-      })
-      if (charge) effects.charges.push(charge)
-      else await notifyBooker(t, booking, 'payment.card_needed', `Add a card for ${session.title}`, `${formatMoney(amount)} is due to ${session.providerName}. Add a card from your booking.`)
-      paymentStatus = charge ? 'due' : 'failed'
-    } else {
-      paymentStatus = 'waived'
-    }
+    paymentStatus = amount > 0 ? await chargeLater(t, booking, session, outcome === 'attended' ? 'booking' : 'no_show_fee', amount, effects) : 'waived'
   } else if (outcome === 'no_show') {
     const keep = waiveFee ? 0 : session.noShowFeePct
-    const settled = await settleEnd(t, booking, { refundCents: booking.priceCents - pct(booking.priceCents, keep), returnCredit: keep === 0, feeCents: 0 }, 'no_show_fee')
+    const settled = await settleEnd(t, booking, session, { refundCents: booking.priceCents - pct(booking.priceCents, keep), returnCredit: keep === 0, feeCents: 0 }, 'no_show_fee')
     addEffects(effects, settled.effects)
     paymentStatus = settled.paymentStatus === 'none' ? booking.paymentStatus : settled.paymentStatus
   }
@@ -485,8 +500,8 @@ export async function expireHolds(db: Db): Promise<number> {
   const expired = await db.query<{ id: string; sessionId: string }>(
     `SELECT id, session_id AS "sessionId" FROM bookings
      WHERE (status = 'held' AND hold_expires_at < now()) OR (status IN ('offered','invited') AND offer_expires_at < now()) LIMIT 500`)
-  for (const row of expired) {
-    await tx(async (t) => {
+  await forEachIsolated(expired, 'bookings.expire_failed', (row) => row.id, (row) =>
+    tx(async (t) => {
       const session = await lockSession(t, row.sessionId)
       const updated = await t.query<Booking>(
         `UPDATE bookings b SET status = 'expired', hold_expires_at = NULL, offer_expires_at = NULL, updated_at = now()
@@ -496,8 +511,7 @@ export async function expireHolds(db: Db): Promise<number> {
       await cancelPendingCheckouts(t, row.id)
       await notifyBooker(t, updated[0], 'booking.expired', `Spot released: ${session.title}`, 'The time to confirm ran out, so the spot went to the next player. Book again any time.')
       await promoteWaitlist(t, session)
-    })
-  }
+    }))
   return expired.length
 }
 
@@ -505,16 +519,20 @@ export async function expireHolds(db: Db): Promise<number> {
 export async function completeSessions(db: Db): Promise<Effects> {
   const effects = noEffects()
   const due = await db.query<{ id: string; providerId: string }>(
-    `SELECT id, provider_id AS "providerId" FROM sessions WHERE status = 'scheduled' AND ends_at < now() - interval '2 hours' LIMIT 200`)
-  for (const s of due) {
-    await tx(async (t) => {
+    `SELECT id, provider_id AS "providerId" FROM sessions WHERE status = 'scheduled' AND ends_at < now() - interval '2 hours'
+     ORDER BY ends_at LIMIT 200`)
+  await forEachIsolated(due, 'sessions.complete_failed', (s) => s.id, async (s) => {
+    // Effects are kept only once the session's transaction commits.
+    addEffects(effects, await tx(async (t) => {
+      const sessionEffects = noEffects()
       await lockSession(t, s.id)
       const confirmed = await t.query<{ id: string }>(`SELECT id FROM bookings WHERE session_id = $1 AND status = 'confirmed'`, [s.id])
-      for (const b of confirmed) addEffects(effects, (await markAttendance(t, s.providerId, b.id, 'attended')).effects)
+      for (const b of confirmed) addEffects(sessionEffects, (await markAttendance(t, s.providerId, b.id, 'attended')).effects)
       await t.query(`UPDATE bookings SET status = 'expired', updated_at = now() WHERE session_id = $1 AND status IN ('held','offered','invited','requested','waitlisted')`, [s.id])
       await t.query(`UPDATE sessions SET status = 'completed', updated_at = now() WHERE id = $1`, [s.id])
-    })
-  }
+      return sessionEffects
+    }))
+  })
   return effects
 }
 
@@ -534,12 +552,11 @@ export async function onBookingPaid(t: Db, payment: Payment, kind: 'paid' | 'car
   // A payment finishing after its hold timed out may still take a free seat. Cancelled or declined
   // bookings are never revived, and a second open booking means refund (never a constraint error).
   const canTakeSeat = holding || (booking.status === 'expired' && seatFree && !otherOpen
-    && session.status === 'scheduled' && new Date(session.startsAt).getTime() > Date.now())
+    && session.status === 'scheduled' && new Date(session.startsAt).getTime() > Date.now() && !(await oneOnOneClash(t, session)))
   if (canTakeSeat) {
     await t.query(`UPDATE bookings SET status = 'confirmed', payment_status = $2, hold_expires_at = NULL, offer_expires_at = NULL, updated_at = now() WHERE id = $1`, [booking.id, paymentStatus])
     await notifyBooker(t, booking, 'booking.confirmed', `You’re booked: ${session.title}`, `${when(session)}${session.locationName ? ` at ${session.locationName}` : ''}.`, `booking.confirmed:${booking.id}`)
-    const player = (await getPlayer(t, booking.playerId))!
-    await notifyProvider(t, session, 'booking.new', `${player.displayName} booked`, `${session.title}, ${when(session)}.`, `booking.new:${booking.id}`)
+    await notifyProvider(t, session, 'booking.new', `${booking.playerName} booked`, `${session.title}, ${when(session)}.`, `booking.new:${booking.id}`)
   } else if (kind === 'paid' && booking.status !== 'confirmed') {
     await requestRefund(t, payment.id, payment.amountCents)
     effects.refunds.push(payment.id)

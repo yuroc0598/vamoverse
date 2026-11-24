@@ -31,6 +31,8 @@ export interface SessionView {
   levelMin: number | null
   levelMax: number | null
   status: 'scheduled' | 'cancelled' | 'completed'
+  /** The series is archived when the provider stops it (or leaves); its sessions can't be booked. */
+  offeringStatus: 'active' | 'archived'
   started: boolean
   cancelReason: string | null
   courtStatus: 'unknown' | 'walk_up' | 'booked' | 'needs_booking'
@@ -54,7 +56,7 @@ export const SESSION_SELECT = `
     u.display_name AS "providerName", o.kind, o.title, o.description, o.discipline, o.audience, o.visibility,
     s.starts_at AS "startsAt", s.ends_at AS "endsAt", o.timezone, s.capacity, s.price_cents AS "priceCents",
     o.payment_rule AS "paymentRule", o.accepts_credits AS "acceptsCredits", o.level_system AS "levelSystem",
-    o.level_min AS "levelMin", o.level_max AS "levelMax", s.status, s.starts_at <= now() AS started, s.cancel_reason AS "cancelReason",
+    o.level_min AS "levelMin", o.level_max AS "levelMax", s.status, o.status AS "offeringStatus", s.starts_at <= now() AS started, s.cancel_reason AS "cancelReason",
     s.court_status AS "courtStatus", s.court_confirmation AS "courtConfirmation",
     COALESCE(c.name, o.location_name) AS "locationName", c.address AS "locationAddress",
     concat_ws(' · ', c.notes, o.location_note) AS "locationNote", c.booking_url AS "courtBookingUrl",

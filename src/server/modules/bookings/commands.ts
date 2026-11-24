@@ -6,7 +6,7 @@ import { enforceRateLimit } from '../../ratelimit'
 import { optionalText, personName } from '../../schemas'
 import { runEffects } from '../payments/settlement'
 import { requireOwnSession, requireSession, type SessionView } from '../schedule/sessions'
-import { findOrCreateAccount, findUserIdByContact, type Actor } from '../users/accounts'
+import { withNewAccount, type Actor } from '../users/accounts'
 import { listFamily, requireManagedPlayer, getPlayer, type Player } from '../users/players'
 import { creditBalance } from '../packages/packages'
 import { zonedToUtc, addDays } from '@/lib/time'
@@ -71,7 +71,7 @@ export const bookingCommands = {
         bookings: mine,
         credits: actor && session.acceptsCredits ? await creditBalance(db, actor.userId, session.providerId, session.kind) : 0,
         isOwner: actor?.providerId === session.providerId,
-        bookable: session.status === 'scheduled' && new Date(session.startsAt).getTime() > Date.now(),
+        bookable: session.status === 'scheduled' && session.offeringStatus === 'active' && new Date(session.startsAt).getTime() > Date.now(),
       }
     },
   }),
@@ -88,23 +88,22 @@ export const bookingCommands = {
         .refine((g) => g.email || g.phone, 'Enter an email or phone number').optional(),
     }),
     run: async ({ actor, db, ip }, input) => {
-      let booker = actor
-      if (!booker) {
+      const book = async (t: Db, booker: Actor, player: Player, useCredit: boolean) => {
+        const session = await lockSession(t, input.sessionId)
+        await assertCanSee(t, session, actor)
+        return placeBooking(t, { session, player, bookedByUserId: booker.userId, useCredit })
+      }
+      let placed
+      if (actor) {
+        const player = await requireManagedPlayer(db, actor, input.playerId ?? actor.playerId)
+        placed = await tx((t) => book(t, actor, player, input.useCredit))
+      } else {
         if (!input.guest) throw fail.unauthorized('Sign in, or enter your name and email to book as a guest.')
         if (input.playerId) throw fail.badRequest('Sign in to book for a junior.')
         await enforceRateLimit(db, `guest-book:${ip ?? 'unknown'}`, 20, 3600)
-        // A guest can only create a new account. Booking as an existing account (its credits,
-        // saved card, juniors) requires signing in as that person.
-        if (await findUserIdByContact(db, input.guest)) throw fail.unauthorized('You already have an account with that email or phone. Sign in to book.')
-        booker = await findOrCreateAccount(db, input.guest)
+        // The guest's account exists only if the booking succeeds.
+        placed = await withNewAccount(db, input.guest, async (t, guest) => book(t, guest, (await getPlayer(t, guest.playerId))!, false))
       }
-      const playerId = input.playerId ?? booker.playerId
-      const player: Player = actor ? await requireManagedPlayer(db, actor, playerId) : (await getPlayer(db, playerId))!
-      const placed = await tx(async (t) => {
-        const session = await lockSession(t, input.sessionId)
-        await assertCanSee(t, session, actor)
-        return placeBooking(t, { session, player, bookedByUserId: booker.userId, useCredit: Boolean(actor) && input.useCredit })
-      })
       const checkoutUrl = placed.paymentId ? await bookingCheckoutUrl(db, placed.booking.id) : null
       return { booking: placed.booking, message: placed.message, checkoutUrl, manageUrl: bookingPath(placed.booking.id) }
     },
@@ -155,7 +154,7 @@ export const bookingCommands = {
       for (const id of ids) {
         const result = await tx((t) => acceptInvite(t, id))
         if (result.booking.status === 'confirmed') confirmed++
-        else if (!firstCheckout && result.paymentId) firstCheckout = id
+        else if (!firstCheckout && result.needsPayment) firstCheckout = id
       }
       return { confirmed, checkoutUrl: firstCheckout ? await bookingCheckoutUrl(db, firstCheckout) : null }
     },

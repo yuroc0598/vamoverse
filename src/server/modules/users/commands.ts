@@ -4,9 +4,9 @@ import { tx, updateRow } from '../../db'
 import { fail } from '../../errors'
 import { personName } from '../../schemas'
 import { createProvider } from '../providers/profile'
-import { deleteAccount, getAccount, loadActor, setDisplayName } from './accounts'
+import { deleteAccount, getAccount, loadActor } from './accounts'
 import { addJunior, addJuniorInput, removeJunior } from './guardians'
-import { listFamily, playerUpdateInput, updatePlayer } from './players'
+import { listFamily, playerUpdateInput, renamePlayer, updatePlayer } from './players'
 
 export const userCommands = {
   'account.me': command({
@@ -33,7 +33,7 @@ export const userCommands = {
     run: async ({ actor, db }, input) => {
       await tx(async (t) => {
         await updateRow(t, 'users', actor.userId, { notify_email: input.notifyEmail, notify_sms: input.notifySms })
-        if (input.displayName) await setDisplayName(t, actor.userId, input.displayName)
+        if (input.displayName) await renamePlayer(t, actor.playerId, input.displayName)
       })
       return loadActor(db, actor.userId)
     },
@@ -55,7 +55,7 @@ export const userCommands = {
         await updateRow(t, 'users', actor.userId, {
           adult_confirmed_at: new Date(), onboarded_at: new Date(),
         })
-        await setDisplayName(t, actor.userId, input.displayName)
+        await renamePlayer(t, actor.playerId, input.displayName)
         if (input.offersCoaching || input.offersHitting) {
           await createProvider(t, { ...actor, displayName: input.displayName, adultConfirmed: true }, input)
         }

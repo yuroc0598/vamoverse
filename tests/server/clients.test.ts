@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/server/db'
-import { ensureActor } from '@/server/modules/users/accounts'
 import { resetDb } from '../helpers/db'
-import { makeProvider, makeSeries, makeUser, notificationsFor } from '../helpers/factories'
+import { makeProvider, makeSeries, makeUser } from '../helpers/factories'
 import { as } from '../helpers/run'
 
 beforeEach(resetDb)
 
 describe('crew', () => {
-  it('imports contacts as claimable accounts, skips duplicates, and reports bad rows', async () => {
+  it('saves imported contacts as invites only: no accounts, no messages, no lookups', async () => {
     const coach = await makeProvider('Alex Rivera')
     const existing = await makeUser('Maya')
+    const usersBefore = (await db.query(`SELECT 1 FROM users`)).length
     const result = await as(coach)('clients.import', {
       contacts: [
         { name: 'Maya', email: existing.email },
@@ -19,30 +19,45 @@ describe('crew', () => {
         { name: 'Bad Phone', phone: '123' },
       ],
     })
-    expect(result).toMatchObject({ added: 2, alreadyClients: 0 })
+    expect(result).toMatchObject({ added: 2, duplicates: 0 })
     expect(result.failed.map((f) => f.name)).toEqual(['No Contact', 'Bad Phone'])
-    expect((await as(coach)('clients.import', { contacts: [{ name: 'Sam', phone: '+14155550199' }] })).alreadyClients).toBe(1)
-    expect((await as(coach)('clients.list', {})).map((c) => c.playerName)).toEqual(['Maya', 'Sam Lee'])
-    expect(await notificationsFor(existing.userId)).toContain('client.added')
-
-    // Sam signs in later with the same phone and finds his account (and coach) waiting.
-    const samId = (await db.query<{ id: string }>(`SELECT id FROM users WHERE phone = '+14155550199'`))[0].id
-    const sam = await ensureActor(db, { id: samId, phone: '+14155550199' })
-    expect((await as(sam)('coaches.mine', {})).map((c) => c.slug)).toEqual(['alex-rivera'])
+    expect((await as(coach)('clients.import', { contacts: [{ name: 'Sam', phone: '+14155550199' }] })).duplicates).toBe(1)
+    // Nothing about the existing account is revealed, created, or sent.
+    expect(await as(coach)('clients.list', {})).toEqual([])
+    expect((await db.query(`SELECT 1 FROM users`)).length).toBe(usersBefore)
+    expect(await db.query(`SELECT 1 FROM notifications`)).toHaveLength(0)
+    expect((await as(coach)('clients.invites', {})).map((i) => [i.name, i.email, i.phone]))
+      .toEqual([['Maya', existing.email, null], ['Sam Lee', null, '+14155550199']])
   })
 
-  it('lets coaches book imported students straight away and keeps notes private to them', async () => {
-    const coach = await makeProvider()
-    await as(coach)('clients.import', { contacts: [{ name: 'Leo Parent', email: 'parent@example.com' }] })
-    const [client] = await as(coach)('clients.list', {})
+  it('turns an invite into a client when the person joins or books themselves', async () => {
+    const coach = await makeProvider('Alex Rivera')
+    const [maya, sam] = await Promise.all([makeUser('Maya'), makeUser('Sam')])
+    await as(coach)('clients.import', { contacts: [{ name: 'Maya C', email: maya.email }, { name: 'Sam L', email: sam.email }] })
+    await as(maya)('clients.join', { slug: 'alex-rivera' })
     const { sessionIds: [sessionId] } = await makeSeries(coach)
-    await as(coach)('bookings.addPlayer', { sessionId, playerId: client.playerId })
-    expect((await as(coach)('sessions.roster', { sessionId }))[0]).toMatchObject({ playerName: 'Leo Parent', status: 'confirmed' })
-    await as(coach)('clients.update', { playerId: client.playerId, notes: 'Working on second serve' })
+    await as(sam)('bookings.create', { sessionId })
+    expect(await as(coach)('clients.invites', {})).toEqual([])
+    expect((await as(coach)('clients.list', {})).map((c) => c.playerName)).toEqual(['Maya', 'Sam'])
+  })
+
+  it('needs the student’s yes for any coach-added booking, even free ones; notes stay private', async () => {
+    const coach = await makeProvider()
+    const maya = await makeUser('Maya')
+    const { sessionIds: [intro] } = await makeSeries(coach, { startTime: '07:00' })
+    await as(maya)('bookings.create', { sessionId: intro })
+    const { sessionIds: [sessionId] } = await makeSeries(coach, { paymentRule: 'external', priceCents: 3000 })
+    await as(coach)('bookings.addPlayer', { sessionId, playerId: maya.playerId })
+    const [invite] = await db.query<{ id: string; status: string; payment_status: string }>(`SELECT id, status, payment_status FROM bookings WHERE session_id = $1`, [sessionId])
+    expect(invite).toMatchObject({ status: 'invited', payment_status: 'due' })
+    expect((await as(coach)('money.summary', {})).owedCents).toBe(0) // nothing owed before the yes
+    expect(await as(maya)('bookings.acceptInvite', { bookingId: invite.id })).toMatchObject({ confirmed: 1, checkoutUrl: null })
+
+    await as(coach)('clients.update', { playerId: maya.playerId, notes: 'Working on second serve' })
     expect((await as(coach)('clients.list', {}))[0].notes).toBe('Working on second serve')
     const other = await makeProvider('Other')
-    await expect(as(other)('clients.update', { playerId: client.playerId, notes: 'x' })).rejects.toMatchObject({ code: 'not_found' })
-    await as(coach)('clients.update', { playerId: client.playerId, status: 'archived' })
+    await expect(as(other)('clients.update', { playerId: maya.playerId, notes: 'x' })).rejects.toMatchObject({ code: 'not_found' })
+    await as(coach)('clients.update', { playerId: maya.playerId, status: 'archived' })
     expect(await as(coach)('clients.list', {})).toEqual([])
     expect(await as(coach)('clients.list', { includeArchived: true })).toHaveLength(1)
   })

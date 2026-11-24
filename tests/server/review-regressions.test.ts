@@ -25,14 +25,29 @@ describe('review regressions', () => {
     expect(await db.query(`SELECT 1 FROM bookings`)).toHaveLength(0)
   })
 
+  it('lets a guest retry after a failed booking (no account is left behind)', async () => {
+    const coach = await makeProvider()
+    const { sessionIds: [mens] } = await makeSeries(coach, { discipline: 'mens_doubles', capacity: 4 })
+    const { sessionIds: [open] } = await makeSeries(coach, { startTime: '08:00' })
+    const guest = { name: 'Gabe', email: 'gabe@example.com' }
+    await expect(as(null)('bookings.create', { sessionId: mens, guest })).rejects.toThrow('Add your gender')
+    expect(await db.query(`SELECT 1 FROM users WHERE email = 'gabe@example.com'`)).toHaveLength(0)
+    await expect(as(null)('bookings.create', { sessionId: open, guest })).resolves.toMatchObject({ booking: { status: 'confirmed' } })
+  })
+
   it('a coach adding someone to a paid session needs that person to confirm before any card is used', async () => {
     const { coach, sessionIds } = await makePaidSeries({ kind: 'private', capacity: 1, paymentRule: 'pay_after', priceCents: 90000, repeatWeekdays: [0, 1, 2, 3, 4, 5, 6] })
     const victim = await makeUser('Victim')
     // The victim has a saved card from somewhere else.
     await db.query(`INSERT INTO payment_methods (id, user_id, processor, last4) VALUES ('pm_dev_x4242', $1, 'dev', '4242')`, [victim.userId])
+    // Importing someone's email gives the coach nothing: no link, no details, no way to book them.
     await as(coach)('clients.import', { contacts: [{ name: 'Victim', email: victim.email }] })
+    await expect(as(coach)('bookings.addPlayer', { sessionId: sessionIds[0], playerId: victim.playerId })).rejects.toMatchObject({ code: 'not_found' })
+    // Once they book with the coach themselves, coach-added sessions are still only invites.
+    const { sessionIds: [intro] } = await makeSeries(coach, { startTime: '06:00' })
+    await as(victim)('bookings.create', { sessionId: intro })
     await as(coach)('bookings.addPlayer', { sessionId: sessionIds[0], playerId: victim.playerId })
-    const [booking] = await db.query<{ id: string }>(`SELECT id FROM bookings WHERE player_id = $1`, [victim.playerId])
+    const [booking] = await db.query<{ id: string }>(`SELECT id FROM bookings WHERE session_id = $1`, [sessionIds[0]])
     expect(await status(booking.id)).toEqual({ status: 'invited', payment_status: 'due' })
     await startSession(sessionIds[0])
     await expect(as(coach)('bookings.attendance', { bookingId: booking.id, outcome: 'attended' })).rejects.toMatchObject({ code: 'conflict' })
