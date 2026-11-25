@@ -35,7 +35,9 @@ export async function recordFixtures(baseUrl: string, out: string, log: (line: s
 
   async function signIn(email: string): Promise<string> {
     const res = await fetch(`${BASE_URL}/api/auth/dev`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) })
-    const body = await res.json() as { data?: { token?: string }; error?: { message: string } }
+    const text = await res.text()
+    let body: { data?: { token?: string }; error?: { message: string } } = {}
+    try { body = JSON.parse(text) } catch { /* an HTML error page; reported below with the status */ }
     if (!body.data?.token) throw new Error(`Dev sign-in failed for ${email}: ${body.error?.message ?? res.status}. Is the server in dev auth mode?`)
     return body.data.token
   }
@@ -55,7 +57,10 @@ export async function recordFixtures(baseUrl: string, out: string, log: (line: s
   mkdirSync(OUT, { recursive: true })
   for (const file of readdirSync(OUT)) if (file.endsWith('.json')) rmSync(join(OUT, file))
 
-  const tokens = Object.fromEntries(await Promise.all(Object.entries(PEOPLE).map(async ([who, email]) => [who, await signIn(email)]))) as Record<keyof typeof PEOPLE, string>
+  // One at a time: on a fresh `next dev`, parallel first requests can race the route's first
+  // compile and get Next's HTML 404 page.
+  const tokens = {} as Record<keyof typeof PEOPLE, string>
+  for (const [who, email] of Object.entries(PEOPLE) as [keyof typeof PEOPLE, string][]) tokens[who] = await signIn(email)
   const everyone: [Who, string | null][] = [['guest', null], ...Object.entries(tokens) as [Who, string][]]
 
   // Signed in or not.

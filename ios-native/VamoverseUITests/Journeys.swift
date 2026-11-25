@@ -20,6 +20,22 @@ final class Journeys: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Every failure saves the app's element tree (types, identifiers, labels), so it's clear what
+    /// was on screen, not just which query missed. run-native.ts sets VAMO_UI_TREE_FILE to a path in
+    /// the results folder (the simulator can write host paths); it's also attached to the result.
+    override func record(_ issue: XCTIssue) {
+        var issue = issue
+        let tree = MainActor.assumeIsolated { XCUIApplication().debugDescription }
+        if let path = ProcessInfo.processInfo.environment["VAMO_UI_TREE_FILE"], !path.isEmpty {
+            try? "\(issue.compactDescription)\n\n\(tree)".write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        let attachment = XCTAttachment(string: tree)
+        attachment.name = "App UI tree at failure"
+        attachment.lifetime = .keepAlways
+        issue.add(attachment)
+        super.record(issue)
+    }
+
     /// Launches the app pointed at the test server; `fresh` starts signed out, `as` signs in with
     /// the dev route, `open` opens a web path once signed in.
     @MainActor
@@ -54,6 +70,21 @@ final class Journeys: XCTestCase {
             usleep(250_000)
         }
         return nil
+    }
+
+    /// Waits until `element` matches `format`. On timeout the failure says what the element actually
+    /// showed, which a plain predicate expectation doesn't.
+    @MainActor
+    private func waitFor(_ element: XCUIElement, named name: String, _ format: String, _ args: Any..., timeout: TimeInterval = 15,
+                         file: StaticString = #filePath, line: UInt = #line) {
+        let predicate = NSPredicate(format: format, argumentArray: args)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && predicate.evaluate(with: element) { return }
+            usleep(250_000)
+        }
+        let actual = element.exists ? "label \"\(element.label)\", enabled \(element.isEnabled)" : "not on screen"
+        XCTFail("\(name): expected \(predicate.predicateFormat) within \(Int(timeout))s; it shows \(actual)", file: file, line: line)
     }
 
     @MainActor
@@ -95,11 +126,9 @@ final class Journeys: XCTestCase {
         guard let done = hosted({ $0.buttons["Done"] }, in: app, timeout: 10) else { return XCTFail("Safari's Done button") }
         done.tap()
 
-        let headline = app.staticTexts["booking.headline"]
+        let headline = app.descendants(matching: .any)["booking.headline"]
         XCTAssertTrue(headline.waitForExistence(timeout: 20), "the booking screen")
-        let confirmed = NSPredicate(format: "label == %@", "You’re booked")
-        expectation(for: confirmed, evaluatedWith: headline)
-        waitForExpectations(timeout: 15)
+        waitFor(headline, named: "booking headline", "label BEGINSWITH %@", "You’re booked")
         XCTAssertEqual(app.staticTexts["booking.payment"].label, "Paid $60.")
     }
 
@@ -115,9 +144,8 @@ final class Journeys: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "the confirmation")
         confirm.tap()
 
-        let headline = app.staticTexts["booking.headline"]
-        expectation(for: NSPredicate(format: "label == %@", "Cancelled"), evaluatedWith: headline)
-        waitForExpectations(timeout: 15)
+        let headline = app.descendants(matching: .any)["booking.headline"]
+        waitFor(headline, named: "booking headline", "label BEGINSWITH %@", "Cancelled")
         // A late cancel keeps the payment line and shows the partial refund on it.
         let payment = app.staticTexts["booking.payment"]
         if payment.exists { XCTAssertTrue(payment.label.contains("refunded"), "refund on the booking: \(payment.label)") }
@@ -133,10 +161,9 @@ final class Journeys: XCTestCase {
         XCTAssertEqual(book.label, "Book (pay after)")
         book.tap()
         // The card saved in journey 2 is used: no checkout, straight to the booking.
-        let headline = app.staticTexts["booking.headline"]
+        let headline = app.descendants(matching: .any)["booking.headline"]
         XCTAssertTrue(headline.waitForExistence(timeout: 20), "the booking screen")
-        expectation(for: NSPredicate(format: "label CONTAINS %@", "charged after the session"), evaluatedWith: headline)
-        waitForExpectations(timeout: 15)
+        waitFor(headline, named: "booking headline", "label CONTAINS %@", "charged after the session")
     }
 
     /// Waits for the error toast and returns its text (the server's message).
@@ -180,9 +207,11 @@ final class Journeys: XCTestCase {
     @MainActor
     func test06_CoachCannotOverlap() {
         let app = launch(as: "alex@demo.vamoverse.app", open: "/sessions/\(env("VAMO_SESSION_ID"))")
-        let time = app.datePickers["manage.time"]
-        XCTAssertTrue(time.waitForExistence(timeout: 20), "the time picker")
-        scrolledTo(time, in: app).tap()
+        XCTAssertTrue(app.buttons["manage.addPlayer.picker"].waitForExistence(timeout: 20), "the session screen")
+        // The edit section is below the fold, and the list only builds rows as they scroll in.
+        let time = scrolledTo(app.datePickers["manage.time"], in: app)
+        XCTAssertTrue(time.exists, "the time picker")
+        time.tap()
         // Lesson slots start on the hour; :30 overlaps the next slot, which is booked (step 5).
         let minutes = app.pickerWheels.element(boundBy: 1)
         XCTAssertTrue(minutes.waitForExistence(timeout: 5), "the minute wheel")
@@ -206,8 +235,7 @@ final class Journeys: XCTestCase {
         field.typeText(lines.joined(separator: "\n"))
         // The server's preview counts the lines first, as the web does ("Save 3 invites").
         let save = app.buttons["crew.import.save"]
-        expectation(for: NSPredicate(format: "label == %@ AND isEnabled == true", "Save 3 invites"), evaluatedWith: save)
-        waitForExpectations(timeout: 15)
+        waitFor(save, named: "save button", "label == %@ AND isEnabled == true", "Save 3 invites")
         scrolledTo(save, in: app).tap()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 15), "the confirmation")
@@ -221,9 +249,11 @@ final class Journeys: XCTestCase {
     @MainActor
     func test08_CoachCannotDeleteAccount() {
         let app = launch(as: "alex@demo.vamoverse.app", open: "/settings/account")
-        let delete = app.buttons["account.delete"]
-        XCTAssertTrue(delete.waitForExistence(timeout: 20), "the delete button")
-        scrolledTo(delete, in: app).tap()
+        XCTAssertTrue(app.switches["account.notifyPush"].waitForExistence(timeout: 20), "the account screen")
+        // Delete is at the bottom; the list only builds rows as they scroll in.
+        let delete = scrolledTo(app.buttons["account.delete"], in: app)
+        XCTAssertTrue(delete.exists, "the delete button")
+        delete.tap()
         let confirmField = app.alerts.textFields.firstMatch
         XCTAssertTrue(confirmField.waitForExistence(timeout: 5), "the DELETE prompt")
         confirmField.typeText("DELETE")

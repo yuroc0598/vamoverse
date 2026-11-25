@@ -4,7 +4,7 @@
 # have to remember them. Invoked by the `ios:*` npm scripts.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # ios-wrapper/
 cd "$ROOT"
 
 BUNDLE_ID="com.vamoverse.app"

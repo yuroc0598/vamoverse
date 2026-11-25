@@ -245,17 +245,16 @@ iPad-specific layouts, Android.
 - Don't ask another session to do something your own permissions blocked.
 - Other sessions may edit this repo; keep changes scoped and re-read files before editing.
 
-## 11. Switchover: retiring the Capacitor app (`ios/`)
+## 11. Switchover: retiring the Capacitor app (`ios-wrapper/`)
 
 **Disabled now (user's decision, 2026-11-25).** `IOS_WRAPPER_DISABLED` defaults to true
 (scripts/ios-wrapper.ts): the wrapper's npm scripts stop with a pointer to the native commands,
 `ios:sim` opens the native app, and `test:ios` runs only mobile Safari.
-`IOS_WRAPPER_DISABLED=false` brings it all back. The code and the `ios/` folder are kept for
+`IOS_WRAPPER_DISABLED=false` brings it all back. All of its files are in one folder, `ios-wrapper/`, kept for
 rollback until the native app is on the App Store; then the cleanup below can run.
 
 **When to delete is [USER].** Nothing below has been deleted yet. Preconditions:
-1. `npm run test:ios-native` passes 9/9 in a normal terminal (XCTest can't run from the agent
-   sandbox), with `test:ios` still passing on the same server.
+1. ✅ `npm run test:ios-native` passes 9/9 (2026-11-25, Xcode 27.1). Keep `test:ios` passing too.
 2. The [USER] inputs below are in place: Apple Team ID, APNs key, Supabase native sign-in
    config, the real app icon. Plus a TestFlight round on real devices: sign-in (all 4 methods),
    push delivery and taps, universal links from email/SMS, checkout and Connect in Safari.
@@ -269,10 +268,11 @@ ratings and the listing carry over. Raise `MARKETING_VERSION` above the last Cap
 cookies don't carry over to the native Keychain session. Say so in the release notes.
 
 **Delete** (one PR after the native app is live on the App Store):
-- `ios/` (the Capacitor Xcode project), `capacitor.config.ts`, `mobile-shell/`.
+- `ios-wrapper/` (the Capacitor Xcode project `ios/`, `capacitor.config.ts`, the offline page
+  `mobile-shell/`, and the device helper `ios.sh`).
 - npm dependencies `@capacitor/core`, `@capacitor/ios`, `@capacitor/cli`.
 - Scripts: `ios:init`, `ios:add`, `ios:build`, `ios:sync`, `ios:open`, `ios:dev`,
-  `ios:livereload`, `ios:run`, `ios:go`, `ios:logs`, `ios:ip`, `ios:device`, and `scripts/ios.sh`.
+  `ios:livereload`, `ios:run`, `ios:go`, `ios:logs`, `ios:ip`, `ios:device`.
 - `scripts/ios-sim.ts` (the Capacitor one-command run), plus `buildApp`/`pointAppAt` in
   `scripts/e2e-ios/simulator.ts`.
 - `NEXT_PUBLIC_API_BASE_URL` in `src/lib/client/api.ts` and `.env.example`, used only by the
@@ -284,7 +284,7 @@ cookies don't carry over to the native Keychain session. Say so in the release n
   remove the `app` surface from `scripts/e2e-ios/run.ts`, and maybe rename it `test:ios-safari`.
 - Rename `test:ios-native` → `test:ios` and `ios:sim:native` → `ios:sim`, and update the README
   (Quick start and Testing).
-- `ios-native/` can be renamed to `ios/` once the old folder is gone. Then update paths in
+- `ios-native/` can be renamed to `ios/` once `ios-wrapper/` is gone. Then update paths in
   `scripts/e2e-ios/xcode.ts`, `record-fixtures.ts`, `check-native-wording.ts`,
   `src/server/api-catalog.ts` (VamoKit resources), the tsconfig/eslint ignores, and the
   `.gitignore`.

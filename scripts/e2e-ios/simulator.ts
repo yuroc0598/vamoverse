@@ -13,6 +13,21 @@ async function simctl(...args: string[]): Promise<string> {
 
 interface Device { udid: string; name: string; state: string; isAvailable: boolean }
 
+/**
+ * Shows the simulator window (the tests run either way). Opened by path inside the selected
+ * Xcode: renamed or side-by-side installs leave the app unregistered by name, and Xcode 27 moved
+ * the simulator window from Simulator.app into DeviceHub.app.
+ */
+async function openSimulatorWindow(): Promise<void> {
+  const developerDir = (await run('xcode-select', ['-p']).catch(() => ({ stdout: '' }))).stdout.trim()
+  const candidates = [
+    join(developerDir, 'Applications/Simulator.app'),
+    join(developerDir, '../Applications/DeviceHub.app'),
+  ].filter((app) => existsSync(app))
+  for (const app of candidates) if (await run('open', [app]).then(() => true, () => false)) return
+  await run('open', ['-a', 'Simulator']).catch(() => undefined)
+}
+
 export class Simulator {
   private constructor(readonly udid: string, readonly name: string, readonly inspectorSocket: string) {}
 
@@ -27,7 +42,7 @@ export class Simulator {
       await simctl('boot', device.udid)
       await simctl('bootstatus', device.udid)
     }
-    await run('open', ['-a', 'Simulator']).catch(() => undefined)
+    await openSimulatorWindow()
     const socket = await simctl('getenv', device.udid, 'RWI_LISTEN_SOCKET')
     if (!socket) throw new Error('Could not find the simulator\'s Web Inspector socket.')
     return new Simulator(device.udid, device.name, socket)
@@ -77,12 +92,13 @@ export function pointAppAt(appPath: string, serverUrl: string): () => void {
 export async function buildApp(root: string, sim: Simulator, serverUrl: string): Promise<string> {
   // The bundled server URL doesn't matter (pointAppAt rewrites it after install), so an
   // existing generated config is left alone.
-  if (!existsSync(join(root, 'ios/App/App/capacitor.config.json'))) {
-    await run('npx', ['cap', 'copy', 'ios'], { cwd: root, env: { ...process.env, CAPACITOR_ALLOW_LIVERELOAD: 'true', CAPACITOR_DEV_URL: serverUrl } })
+  const wrapper = join(root, 'ios-wrapper')
+  if (!existsSync(join(wrapper, 'ios/App/App/capacitor.config.json'))) {
+    await run('npx', ['cap', 'copy', 'ios'], { cwd: wrapper, env: { ...process.env, CAPACITOR_ALLOW_LIVERELOAD: 'true', CAPACITOR_DEV_URL: serverUrl } })
   }
-  const derived = join(root, 'ios/App/build/e2e')
+  const derived = join(wrapper, 'ios/App/build/e2e')
   await run('xcodebuild', [
-    '-workspace', 'ios/App/App.xcworkspace', '-scheme', 'App', '-configuration', 'Debug',
+    '-workspace', 'ios-wrapper/ios/App/App.xcworkspace', '-scheme', 'App', '-configuration', 'Debug',
     '-destination', `id=${sim.udid}`, '-derivedDataPath', derived, 'build',
   ], { cwd: root, maxBuffer: 256 * 1024 * 1024 })
   return join(derived, 'Build/Products/Debug-iphonesimulator/App.app')

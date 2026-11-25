@@ -84,4 +84,5 @@ What `npm run ios:wording` reports, and why each is fine:
 
 1. Guest booking without an account on `/s/[id]` (the web's name/email/mobile form).
 2. Everything that needs [USER] accounts or decisions (the consolidated list is in the phase 6 report and in `docs/ios-native-spec.md` §11): Supabase sign-in, APNs, universal links, the live assistant, Pro purchase, the real app icon.
-3. XCUITest journeys 1–9 have not run yet. They need the user's Terminal run, because XCTest can't connect from the agent sandbox.
+3. None from testing: XCUITest journeys 1–9 pass (`npm run test:ios-native`, 2026-11-25, Xcode 27.1 on the iOS 27.0
+   simulator). The early Xcode 27.0 beta (27A5218g) can't run UI tests on macOS 27.2: its test runner never starts.

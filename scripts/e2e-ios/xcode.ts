@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 const ROOT = resolve(__dirname, '../..')
 const run = promisify(execFile)
 export const NATIVE_APP_ID = 'com.vamoverse.app.dev'
-const UI_TEST_TIMEOUT_MS = 5 * 60_000
+const UI_TEST_TIMEOUT_MS = 3 * 60_000
 
 /**
  * Xcode and SwiftPM run package manifests and Swift macros under `sandbox-exec`, which fails
@@ -58,8 +58,9 @@ export async function runUITest(udid: string, derivedData: string, test: string,
     child.on('exit', (code) => {
       clearTimeout(timer)
       if (code === 0) return done()
-      const hint = /failed to bless service hub|thwarted by sandboxing|hung before establishing connection/.test(output)
-        ? 'The XCUITest runner could not connect to the simulator. This happens inside sandboxed shells (agent sandboxes, some CI); run from a normal terminal.\n'
+      const hint = timedOut && /failed to bless service hub|thwarted by sandboxing|hung before establishing connection/.test(output)
+        ? 'The XCUITest runner could not connect to the simulator ("failed to bless service hub"). Seen with an early Xcode 27 beta on a newer macOS:\n'
+          + 'try the newest Xcode (sudo xcode-select -s <Xcode.app>; sudo xcodebuild -runFirstLaunch; xcodebuild -downloadPlatform iOS) or run the tests from Xcode once (Cmd-U).\n'
         : ''
       fail(new Error(`${timedOut ? `Timed out after ${UI_TEST_TIMEOUT_MS / 60000} minutes.\n` : ''}${hint}${summarize(output)}`))
     })

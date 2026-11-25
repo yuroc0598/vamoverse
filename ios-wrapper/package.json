@@ -1,0 +1,10 @@
+{
+  "name": "vamoverse-ios-wrapper",
+  "private": true,
+  "description": "The Capacitor web wrapper (disabled; see scripts/ios-wrapper.ts). Capacitor's CLI only runs in a folder with a package.json; its packages come from the repo root's node_modules.",
+  "dependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2"
+  }
+}

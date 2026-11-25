@@ -17,7 +17,7 @@ export default defineConfig([
     'e2e-results/**',
     'out/**',
     'coverage/**',
-    'ios/**',
+    'ios-wrapper/**',
     'ios-native/build/**',
     'ios-native/**/.build/**',
     'node_modules/**',

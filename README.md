@@ -104,7 +104,7 @@ Required environment (the server refuses to start without it): see `.env.example
 ## Mobile
 
 The iOS app is native SwiftUI (`ios-native/`): `npm run ios:sim:native` opens it on the simulator.
-See `docs/ios-native-spec.md` and `docs/ios-native-parity.md`. The old Capacitor web wrapper (`ios/`,
-`docs/ios.md`) is disabled by default; its commands run only with `IOS_WRAPPER_DISABLED=false`.
+See `docs/ios-native-spec.md` and `docs/ios-native-parity.md`. The old Capacitor web wrapper (everything in `ios-wrapper/`,
+see `docs/ios.md`) is disabled by default; its commands run only with `IOS_WRAPPER_DISABLED=false`.
 
 Not affiliated with UTR Sports, USTA, or ITF. Ratings are self-reported.

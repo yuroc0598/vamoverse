@@ -7,7 +7,7 @@
 // already running, boots a simulator, builds and installs the app if needed, points it at
 // http://localhost:3000, and launches it. Servers it started keep running until Ctrl-C.
 // Env: IOS_SIM_DEVICE picks the simulator by name.
-// This is the Capacitor web shell in ios/, which is disabled by default (IOS_WRAPPER_DISABLED, see
+// This is the Capacitor web shell in ios-wrapper/, which is disabled by default (IOS_WRAPPER_DISABLED, see
 // scripts/ios-wrapper.ts): then it runs the native app (`npm run ios:sim:native`) instead.
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'

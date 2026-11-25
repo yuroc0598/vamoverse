@@ -93,7 +93,7 @@ private struct BookingContent: View {
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).font(.title2).foregroundStyle(color).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(detail.headline.title).font(.title3.bold()).accessibilityIdentifier("booking.headline")
+                Text(detail.headline.title).font(.title3.bold())
                 Text("\(detail.playerName) · \(detail.session.title)" + (detail.headline.body.map { " · \($0)" } ?? "")).font(.subheadline)
             }
         }
@@ -101,6 +101,9 @@ private struct BookingContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
         .accessibilityElement(children: .combine)
+        // On the combined element (VoiceOver reads title and details together), so tests see one
+        // element whose label starts with the title.
+        .accessibilityIdentifier("booking.headline")
     }
 
     @ViewBuilder

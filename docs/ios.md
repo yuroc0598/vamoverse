@@ -2,6 +2,7 @@
 
 > The native SwiftUI app (`ios-native/`) replaces this wrapper. Its commands are off by default;
 > run them with `IOS_WRAPPER_DISABLED=false`. See `docs/ios-native-spec.md` §11.
+> All of the wrapper's files are in `ios-wrapper/`.
 
 Vamoverse uses Capacitor as a hosted HTTPS shell. The production Next.js application and its authenticated API routes are deployed together; they are not misrepresented as an offline static export.
 
@@ -35,9 +36,9 @@ Override that origin for staging or another deployment:
 CAPACITOR_SERVER_URL=https://staging.vamoverse.example npm run ios:sync
 ```
 
-Release configuration rejects cleartext `http://` server URLs. `mobile-shell/index.html` is only the offline error fallback; application pages and APIs come from the HTTPS deployment.
+Release configuration rejects cleartext `http://` server URLs. `ios-wrapper/mobile-shell/index.html` is only the offline error fallback; application pages and APIs come from the HTTPS deployment.
 
-Open `ios/App/App.xcworkspace`, choose the App target, configure Signing & Capabilities, select a physical device, and run or archive.
+Open `ios-wrapper/ios/App/App.xcworkspace`, choose the App target, configure Signing & Capabilities, select a physical device, and run or archive.
 
 ## Local device development
 

@@ -11,7 +11,8 @@
 // Results, xcresult bundles, and screenshots go to e2e-results/native-<timestamp>/.
 // Env: IOS_SIM_DEVICE, E2E_NATIVE_PORT (default 3101), E2E_NATIVE_DB_PORT (default 5435),
 // VAMO_XCODE_SANDBOX=off inside sandboxed shells (see xcode.ts).
-import { mkdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { checkNativeInputs } from '../check-native-inputs'
 import { recordFixtures } from '../record-fixtures'
@@ -32,7 +33,20 @@ const seconds = (since: number) => `${((Date.now() - since) / 1000).toFixed(1)}s
 let stack: Stack | null = null
 process.on('SIGINT', () => { void stack?.stop().then(() => process.exit(130)) })
 
+/**
+ * XCUITest launches its runner suspended and attaches to it. With macOS developer mode off that
+ * attach needs an admin prompt, and from a terminal the run just hangs with the runner stopped.
+ */
+function checkDeveloperMode(): void {
+  const status = spawnSync('DevToolsSecurity', ['-status'], { encoding: 'utf8' })
+  if (/disabled/i.test(`${status.stdout}${status.stderr}`)) {
+    throw new Error('macOS developer mode is off, so the UI tests would hang waiting to attach to the test runner.\n'
+      + '  Turn it on once (asks for your password), then run this again:\n    sudo DevToolsSecurity -enable')
+  }
+}
+
 async function main(): Promise<number> {
+  checkDeveloperMode()
   mkdirSync(OUT, { recursive: true })
   log(`Native iOS end-to-end run → ${relative(ROOT, OUT)}/`)
   const simReady = Simulator.ready()
@@ -67,8 +81,9 @@ async function main(): Promise<number> {
     if (blocked) { log(`  - ${step.name} (skipped after an earlier failure)`); failed++; continue }
     const stepStarted = Date.now()
     const screenshot = join(OUT, `native-${n}.png`)
+    const tree = join(OUT, `native-${n}-ui-tree.txt`) // written by Journeys.record on a failure
     try {
-      const env = { VAMO_BASE_URL: stack.baseUrl, ...(await step.prepare?.(stack.db, shared)) }
+      const env = { VAMO_BASE_URL: stack.baseUrl, VAMO_UI_TREE_FILE: tree, ...(await step.prepare?.(stack.db, shared)) }
       await runUITest(sim.udid, DERIVED, step.test, env, join(OUT, `native-${n}.xcresult`))
       const detail = (await step.check?.(stack.db, shared)) || ''
       await sim.screenshot(screenshot)
@@ -77,7 +92,8 @@ async function main(): Promise<number> {
     } catch (error) {
       await sim.screenshot(screenshot)
       await sim.terminate('com.vamoverse.app.uitests.xctrunner')
-      log(`  ✗ ${step.name} (${seconds(stepStarted)})\n      ${String(error instanceof Error ? error.message : error).replace(/\n/g, '\n      ')}\n      screenshot: ${relative(ROOT, screenshot)}`)
+      const hasTree = existsSync(tree)
+      log(`  ✗ ${step.name} (${seconds(stepStarted)})\n      ${String(error instanceof Error ? error.message : error).replace(/\n/g, '\n      ')}\n      screenshot: ${relative(ROOT, screenshot)}${hasTree ? `\n      on screen at the failure: ${relative(ROOT, tree)}` : ''}`)
       failed++
       blocked = true
     }
