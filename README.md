@@ -55,6 +55,11 @@ npm run db:seed       # demo coach, hitter, players, and a parent
 npm run dev           # terminal 2: http://localhost:3000
 ```
 
+To use the iOS app on the Simulator (macOS + Xcode), run `npm run ios:sim:native`. It starts the
+database and dev server if they aren't running, builds and installs the app if needed, and opens it
+pointed at `http://localhost:3000`. Add `-- --build` after Swift changes, `-- --as <email>` to open
+signed in as someone.
+
 Sign in at `/login` with any email; nothing is sent in development. Seeded accounts:
 `alex@demo.vamoverse.app` (coach), `sam@demo.vamoverse.app` (hitter), `maya@demo.vamoverse.app`
 (player), `dave@demo.vamoverse.app` (parent). Payments use a local simulator that emits the same
@@ -76,9 +81,8 @@ CI runs the same against real Postgres.
 ### On the iOS Simulator (macOS + Xcode)
 
 ```bash
-npm run test:ios                   # native app, then mobile Safari
-npm run test:ios -- --only app     # or --only safari
-npm run test:ios -- --build        # rebuild and reinstall the app first
+npm run test:ios-native            # the native app: 9 journeys + fixtures + input contract
+npm run test:ios                   # the web in mobile Safari
 ```
 
 Books, pays, cancels, and checks the coach and parent guards by tapping through the real UI,
@@ -99,6 +103,8 @@ Required environment (the server refuses to start without it): see `.env.example
 
 ## Mobile
 
-The iOS app is a Capacitor shell around the hosted site (`capacitor.config.ts`, `ios/`). See `docs/ios.md`.
+The iOS app is native SwiftUI (`ios-native/`): `npm run ios:sim:native` opens it on the simulator.
+See `docs/ios-native-spec.md` and `docs/ios-native-parity.md`. The old Capacitor web wrapper (`ios/`,
+`docs/ios.md`) is disabled by default; its commands run only with `IOS_WRAPPER_DISABLED=false`.
 
 Not affiliated with UTR Sports, USTA, or ITF. Ratings are self-reported.

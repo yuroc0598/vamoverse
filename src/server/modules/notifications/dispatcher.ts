@@ -1,9 +1,11 @@
-// Delivers outbox notifications by email (all) and SMS (time-sensitive kinds only),
-// honoring each user's preferences, with retries and backoff. Safe to run concurrently.
+// Delivers outbox notifications by email (all), SMS (time-sensitive kinds only), and push (to
+// the user's app installs), honoring each person's channel choices in Settings, with retries and backoff. Each channel keeps
+// its own status, so retrying one never repeats another. Safe to run concurrently.
 import { logger } from '@/lib/logger'
 import { appUrl } from '../../config'
-import { tx, type Db } from '../../db'
-import { sendEmail, sendSms } from './channels'
+import { maybeOne, tx, type Db } from '../../db'
+import { devicesFor, forgetDevice } from '../devices/devices'
+import { sendEmail, sendPush, sendSms } from './channels'
 
 /** Texts cost money and attention: only for things that change someone's plans. */
 const SMS_KINDS = new Set([
@@ -15,17 +17,20 @@ const MAX_ATTEMPTS = 5
 
 interface Due {
   id: string
+  userId: string
   kind: string
   title: string
   body: string
   link: string | null
   emailStatus: string
   smsStatus: string
+  pushStatus: string
   attempts: number
   email: string | null
   phone: string | null
   notifyEmail: boolean
   notifySms: boolean
+  notifyPush: boolean
 }
 
 function escapeHtml(text: string): string {
@@ -56,15 +61,19 @@ export async function deliverPending(db: Db, limit = 50): Promise<number> {
   const due = await tx((t) => t.query<Due>(
     `UPDATE notifications n SET attempts = attempts + 1, next_attempt_at = now() + interval '10 minutes'
      FROM users u
-     WHERE n.id IN (SELECT id FROM notifications WHERE (email_status = 'pending' OR sms_status = 'pending') AND next_attempt_at <= now()
+     WHERE n.id IN (SELECT id FROM notifications WHERE (email_status = 'pending' OR sms_status = 'pending' OR push_status = 'pending')
+                      AND next_attempt_at <= now()
                     ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED)
        AND u.id = n.user_id
-     RETURNING n.id, n.kind, n.title, n.body, n.link, n.email_status AS "emailStatus", n.sms_status AS "smsStatus", n.attempts,
-       u.email, u.phone, u.notify_email AS "notifyEmail", u.notify_sms AS "notifySms"`, [limit]))
+     RETURNING n.id, n.user_id AS "userId", n.kind, n.title, n.body, n.link, n.email_status AS "emailStatus", n.sms_status AS "smsStatus",
+       n.push_status AS "pushStatus", n.attempts,
+       u.email, u.phone, u.notify_email AS "notifyEmail", u.notify_sms AS "notifySms",
+       u.notify_push AS "notifyPush"`, [limit]))
 
   for (const n of due) {
     let email = n.emailStatus
     let sms = n.smsStatus
+    let push = n.pushStatus
     const errors: string[] = []
     if (email === 'pending') {
       if (!n.email || !n.notifyEmail) email = 'skipped'
@@ -78,16 +87,46 @@ export async function deliverPending(db: Db, limit = 50): Promise<number> {
         try { sms = (await sendSms(n.phone, renderSms(n))) ? 'sent' : 'skipped' } catch (e) { errors.push(String(e)) }
       }
     }
+    if (push === 'pending') {
+      try { push = await deliverPush(db, n) } catch (e) { errors.push(String(e)) }
+    }
     const giveUp = n.attempts >= MAX_ATTEMPTS
     if (giveUp) {
       if (email === 'pending') email = 'failed'
       if (sms === 'pending') sms = 'failed'
+      if (push === 'pending') push = 'failed'
     }
     if (errors.length) logger.warn('notify.delivery_error', { notificationId: n.id, attempts: n.attempts, errors })
     await db.query(
-      `UPDATE notifications SET email_status = $2, sms_status = $3, last_error = $4,
-         next_attempt_at = now() + make_interval(mins => $5) WHERE id = $1`,
-      [n.id, email, sms, errors.join(' | ').slice(0, 500) || null, 2 ** Math.min(n.attempts, 6)])
+      `UPDATE notifications SET email_status = $2, sms_status = $3, push_status = $4, last_error = $5,
+         next_attempt_at = now() + make_interval(mins => $6) WHERE id = $1`,
+      [n.id, email, sms, push, errors.join(' | ').slice(0, 500) || null, 2 ** Math.min(n.attempts, 6)])
   }
   return due.length
+}
+
+/**
+ * Pushes to every device the user has the app on, with the unread count as the badge.
+ * Sent if any device got it (a failing extra device isn't retried, so others aren't pushed twice);
+ * throws (retry) only when none did and one failed. Devices APNs reports gone are forgotten.
+ */
+async function deliverPush(db: Db, n: Due): Promise<'sent' | 'skipped'> {
+  if (!n.notifyPush) return 'skipped' // turned off in Settings
+  const devices = await devicesFor(db, n.userId)
+  if (!devices.length) return 'skipped'
+  const unread = (await maybeOne<{ n: number }>(db, `SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL`, [n.userId]))?.n ?? 0
+  let sent = false
+  let failure: unknown = null
+  for (const device of devices) {
+    try {
+      const result = await sendPush({ token: device.token, environment: device.environment, title: n.title, body: n.body, link: n.link, badge: unread })
+      if (result === 'skipped') return 'skipped'
+      if (result === 'gone') await forgetDevice(db, device.token)
+      else sent = true
+    } catch (error) {
+      failure = error
+    }
+  }
+  if (sent || !failure) return sent ? 'sent' : 'skipped'
+  throw failure
 }

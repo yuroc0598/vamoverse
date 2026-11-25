@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "id": "inv_43bbac46963d44d3b989fd67997058cb",
+      "name": "Priya Shah",
+      "email": "priya@demo.vamoverse.app",
+      "phone": null,
+      "createdAt": "2026-11-25T06:19:32.112Z",
+      "subject": "Book with Alex Rivera",
+      "message": "Hi Priya, it’s Alex Rivera. I’m using Vamoverse for lessons and clinics now. Book and pay here: http://localhost:3102/p/alex-rivera"
+    },
+    {
+      "id": "inv_60338fb6e5494f9aa2836f8266807f65",
+      "name": "Tom Lee",
+      "email": null,
+      "phone": "+14155550142",
+      "createdAt": "2026-11-25T06:19:32.113Z",
+      "subject": "Book with Alex Rivera",
+      "message": "Hi Tom, it’s Alex Rivera. I’m using Vamoverse for lessons and clinics now. Book and pay here: http://localhost:3102/p/alex-rivera"
+    }
+  ]
+}

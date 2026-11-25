@@ -1,7 +1,8 @@
-// Email (Resend) and SMS (Twilio) senders over plain HTTPS. In development both are
+// Email (Resend), SMS (Twilio), and push (APNs) senders. In development all three are
 // written to the log instead, so flows can be followed without real providers.
 import { logger } from '@/lib/logger'
-import { emailMode, smsMode } from '../../config'
+import { emailMode, pushMode, smsMode } from '../../config'
+import { sendToApns, type ApnsPush } from './apns'
 
 export interface Email { to: string; subject: string; text: string; html: string }
 
@@ -37,4 +38,15 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
   })
   if (!response.ok) throw new Error(`Twilio ${response.status}: ${(await response.text()).slice(0, 200)}`)
   return true
+}
+
+/** `skipped`: push isn't configured. `gone`: forget this device (app removed or token invalid). */
+export async function sendPush(push: ApnsPush): Promise<'sent' | 'gone' | 'skipped'> {
+  const mode = pushMode()
+  if (mode === 'off') return 'skipped'
+  if (mode === 'log') {
+    logger.info('notify.push_dev', { environment: push.environment, link: push.link, badge: push.badge, titleLength: push.title.length })
+    return 'sent'
+  }
+  return sendToApns(push)
 }

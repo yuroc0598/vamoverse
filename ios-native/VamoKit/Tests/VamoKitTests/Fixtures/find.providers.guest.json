@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "id": "pro_3ffd9503ddd1452584ddf37652d9222e",
+      "slug": "sam-okafor",
+      "name": "Sam Okafor",
+      "headline": "Former D1 player · consistent, heavy ball",
+      "homeArea": "Fremont",
+      "offersCoaching": false,
+      "offersHitting": true,
+      "ratePrivateCents": null,
+      "rateHittingCents": 6000,
+      "safetyVerified": false,
+      "ownNtrp": null,
+      "ownUtr": 10.5,
+      "nextOpening": "2026-11-25T15:00:00.000Z",
+      "openSessions": 12
+    },
+    {
+      "id": "pro_f57b2bc8fe0c4ba095651aaaf8638352",
+      "slug": "alex-rivera",
+      "name": "Alex Rivera",
+      "headline": "USPTA pro · adult doubles and junior development",
+      "homeArea": "Fremont & San Jose",
+      "offersCoaching": true,
+      "offersHitting": false,
+      "ratePrivateCents": 9000,
+      "rateHittingCents": null,
+      "safetyVerified": true,
+      "ownNtrp": null,
+      "ownUtr": null,
+      "nextOpening": "2026-11-26T02:30:00.000Z",
+      "openSessions": 16
+    }
+  ]
+}

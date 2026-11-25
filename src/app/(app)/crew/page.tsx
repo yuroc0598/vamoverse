@@ -46,7 +46,7 @@ export default async function CrewPage({ searchParams }: { searchParams: Promise
       {invites.length > 0 && (
         <Section title={`Not joined yet (${invites.length})`} description="Tap Text or Email to send the invite from your own phone. They appear in your crew once they join or book.">
           <ul className="divide-y rounded-xl border">
-            {invites.map((invite) => <InviteRow key={invite.id} invite={invite} coachName={settings.displayName} joinUrl={joinUrl} />)}
+            {invites.map((invite) => <InviteRow key={invite.id} invite={invite} />)}
           </ul>
         </Section>
       )}

@@ -1,0 +1,14 @@
+// Settings for every target and configuration. Debug.xcconfig / Release.xcconfig include this.
+SDKROOT = iphoneos
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+TARGETED_DEVICE_FAMILY = 1
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+ALWAYS_SEARCH_USER_PATHS = NO
+CODE_SIGN_STYLE = Automatic
+// Simulator builds are signed ad hoc; device builds need DEVELOPMENT_TEAM ([USER]: Apple Team ID).
+CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -
+LOCALIZATION_PREFERS_STRING_CATALOGS = YES

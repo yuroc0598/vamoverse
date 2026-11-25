@@ -1,0 +1,33 @@
+{
+  "data": {
+    "id": "off_f36f18fcd23049d898a7a9fa618ad6cb",
+    "providerId": "pro_f57b2bc8fe0c4ba095651aaaf8638352",
+    "kind": "group",
+    "title": "Junior Development (10–14)",
+    "description": null,
+    "discipline": null,
+    "audience": "juniors",
+    "capacity": 6,
+    "priceCents": 3500,
+    "paymentRule": "external",
+    "acceptsCredits": false,
+    "levelSystem": null,
+    "levelMin": null,
+    "levelMax": null,
+    "visibility": "public",
+    "courtId": "crt_aed35557f03b48b09e37238a23739315",
+    "locationName": null,
+    "locationNote": null,
+    "timezone": "America/Los_Angeles",
+    "startDate": "2026-11-27",
+    "startTime": "15:30",
+    "durationMinutes": 75,
+    "slotsPerDay": 1,
+    "repeatWeekdays": [
+      5
+    ],
+    "repeatEveryWeeks": 1,
+    "endDate": null,
+    "status": "active"
+  }
+}

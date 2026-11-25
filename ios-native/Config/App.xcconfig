@@ -1,0 +1,17 @@
+// The Vamoverse app target (both configurations; per-configuration values come from Debug/Release).
+PRODUCT_NAME = Vamoverse
+PRODUCT_BUNDLE_IDENTIFIER = com.vamoverse.app$(VAMO_BUNDLE_SUFFIX)
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_FILE = $(VAMO_INFOPLIST)
+INFOPLIST_KEY_CFBundleDisplayName = $(VAMO_DISPLAY_NAME)
+INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.sports
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
+INFOPLIST_KEY_UILaunchScreen_Generation = YES
+INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
+// Placeholder: the web logo ("V" on clay). [USER] replace with the real app icon (1024×1024, no alpha).
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ENABLE_PREVIEWS = YES
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+SWIFT_EMIT_LOC_STRINGS = YES
+CODE_SIGN_ENTITLEMENTS = $(VAMO_ENTITLEMENTS)

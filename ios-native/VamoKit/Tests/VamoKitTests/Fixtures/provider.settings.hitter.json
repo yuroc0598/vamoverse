@@ -1,0 +1,28 @@
+{
+  "data": {
+    "id": "pro_3ffd9503ddd1452584ddf37652d9222e",
+    "userId": "usr_2525b5d260884996beef2d147dcc27dc",
+    "slug": "sam-okafor",
+    "displayName": "Sam Okafor",
+    "offersCoaching": false,
+    "offersHitting": true,
+    "headline": "Former D1 player · consistent, heavy ball",
+    "bio": null,
+    "homeArea": "Fremont",
+    "timezone": "America/Los_Angeles",
+    "ratePrivateCents": null,
+    "rateSemiPrivateCents": null,
+    "rateGroupCents": null,
+    "rateHittingCents": 6000,
+    "cancelWindowHours": 24,
+    "lateCancelFeePct": 50,
+    "noShowFeePct": 100,
+    "listed": true,
+    "plan": "free",
+    "planStatus": null,
+    "chargesEnabled": true,
+    "payoutsEnabled": true,
+    "stripeAccountId": "acct_dev_f37652d9222e",
+    "safetyStatus": "none"
+  }
+}

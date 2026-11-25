@@ -1,0 +1,13 @@
+{
+  "data": {
+    "userId": "usr_4de899ac58384fc69c055508b0a9cd18",
+    "email": "dave@demo.vamoverse.app",
+    "phone": null,
+    "displayName": "Dave Kim",
+    "isAdmin": false,
+    "adultConfirmed": true,
+    "onboarded": true,
+    "playerId": "ply_75b22295af794c74867c84a0891d0d0f",
+    "providerId": null
+  }
+}

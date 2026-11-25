@@ -6,20 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CheckboxField, SelectField, TextField } from '@/components/ui/field'
 import { useCommand } from '@/lib/client/api'
-import { formatMoney } from '@/lib/format'
+import { ROSTER_PAYMENT_LABELS, ROSTER_STATUS_LABELS, formatMoney } from '@/lib/format'
 import type { RosterEntry } from '@/server/modules/bookings/queries'
-
-const STATUS_LABEL: Record<string, { label: string; variant: 'success' | 'warning' | 'muted' | 'error' }> = {
-  confirmed: { label: 'Booked', variant: 'success' }, attended: { label: 'Attended', variant: 'success' },
-  held: { label: 'Paying', variant: 'warning' }, invited: { label: 'Invited', variant: 'warning' }, offered: { label: 'Spot offered', variant: 'warning' },
-  requested: { label: 'Asking to join', variant: 'warning' }, waitlisted: { label: 'Waitlist', variant: 'muted' },
-  no_show: { label: 'No-show', variant: 'error' }, cancelled: { label: 'Cancelled', variant: 'muted' },
-  late_cancelled: { label: 'Late cancel', variant: 'error' }, declined: { label: 'Declined', variant: 'muted' },
-}
-
-const PAYMENT_LABEL: Record<string, string> = {
-  due: 'Owes', failed: 'Payment failed', disputed: 'Disputed', paid: 'Paid', paid_external: 'Paid (outside app)', credit: 'Credit', refunded: 'Refunded', waived: 'Waived', none: '',
-}
 
 export function Roster({ entries, started }: { entries: RosterEntry[]; started: boolean }) {
   const router = useRouter()
@@ -35,7 +23,7 @@ export function Roster({ entries, started }: { entries: RosterEntry[]; started: 
   return (
     <ul className="mb-4 divide-y rounded-xl border">
       {entries.map((e) => {
-        const status = STATUS_LABEL[e.status] ?? { label: e.status, variant: 'muted' as const }
+        const status = ROSTER_STATUS_LABELS[e.status] ?? { label: e.status, variant: 'muted' as const }
         const owes = e.paymentStatus === 'due' || e.paymentStatus === 'failed'
         return (
           <li key={e.bookingId} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -43,7 +31,7 @@ export function Roster({ entries, started }: { entries: RosterEntry[]; started: 
               <div className="font-medium">{e.playerName}{e.junior && <span className="text-muted-foreground"> · junior (parent: {e.contactName})</span>}</div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <Badge variant={status.variant}>{status.label}</Badge>
-                {PAYMENT_LABEL[e.paymentStatus] && <span>{PAYMENT_LABEL[e.paymentStatus]}{owes ? ` ${formatMoney(e.priceCents)}` : ''}</span>}
+                {ROSTER_PAYMENT_LABELS[e.paymentStatus] && <span>{ROSTER_PAYMENT_LABELS[e.paymentStatus]}{owes ? ` ${formatMoney(e.priceCents)}` : ''}</span>}
                 {e.contactPhone && <a className="underline" href={`sms:${e.contactPhone}`}>Text</a>}
                 {e.contactEmail && <a className="underline" href={`mailto:${e.contactEmail}`}>Email</a>}
               </div>

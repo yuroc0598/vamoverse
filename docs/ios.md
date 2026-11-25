@@ -1,4 +1,7 @@
-# iOS build guide
+# iOS build guide (Capacitor wrapper, disabled)
+
+> The native SwiftUI app (`ios-native/`) replaces this wrapper. Its commands are off by default;
+> run them with `IOS_WRAPPER_DISABLED=false`. See `docs/ios-native-spec.md` §11.
 
 Vamoverse uses Capacitor as a hosted HTTPS shell. The production Next.js application and its authenticated API routes are deployed together; they are not misrepresented as an offline static export.
 

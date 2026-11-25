@@ -1,0 +1,20 @@
+{
+  "data": {
+    "current": "free",
+    "status": null,
+    "plans": {
+      "free": {
+        "label": "Free",
+        "monthlyCents": 0,
+        "feeBps": 200,
+        "summary": "$0/month · 2% per payment"
+      },
+      "pro": {
+        "label": "Pro",
+        "monthlyCents": 3900,
+        "feeBps": 0,
+        "summary": "$39/month · no per-payment fee"
+      }
+    }
+  }
+}

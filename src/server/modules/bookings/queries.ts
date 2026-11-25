@@ -5,6 +5,7 @@ import { bookingPayment } from '../payments/core'
 import { SESSION_SELECT, getSession, type SessionView } from '../schedule/sessions'
 import type { Actor } from '../users/accounts'
 import { BOOKING_COLUMNS, cancellationTerms, requireBooking, type Booking, type CancellationTerms } from './engine'
+import { bookingHeadline, type BookingHeadline } from './headline'
 import { verifyBookingToken } from './links'
 import { OPEN_STATUSES } from './status'
 
@@ -31,6 +32,8 @@ export interface BookingDetail {
   refundedCents: number
   cancelTerms: CancellationTerms | null
   access: BookingAccess
+  /** What the booking page says at the top (bookings/headline.ts). */
+  headline: BookingHeadline
 }
 
 export async function getBookingDetail(db: Db, actor: Actor | null, bookingId: string, token?: string | null): Promise<BookingDetail> {
@@ -45,6 +48,7 @@ export async function getBookingDetail(db: Db, actor: Actor | null, bookingId: s
   return {
     booking, session: session!, playerName: booking.playerName, pendingPayment: Boolean(pending), refundedCents: payment?.refundRequestedCents ?? 0, access,
     cancelTerms: open ? cancellationTerms(booking, session!, { byProvider: access === 'provider' }) : null,
+    headline: bookingHeadline(booking, session!),
   }
 }
 

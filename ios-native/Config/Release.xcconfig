@@ -1,0 +1,17 @@
+// Release: com.vamoverse.app (takes over the Capacitor app's listing at switchover), strict ATS.
+#include "Shared.xcconfig"
+VAMO_BUNDLE_SUFFIX =
+VAMO_DISPLAY_NAME = Vamoverse
+VAMO_BASE_URL = https:/$()/vamoverse.app
+VAMO_INFOPLIST = Config/Info-Release.plist
+SWIFT_OPTIMIZATION_LEVEL = -O
+SWIFT_COMPILATION_MODE = wholemodule
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+VALIDATE_PRODUCT = YES
+
+// [USER] Apple Team ID (signing, push, universal links, Sign in with Apple). Simulator builds don't need it.
+DEVELOPMENT_TEAM =
+VAMO_ENTITLEMENTS = Config/Vamoverse-Release.entitlements
+// [USER] Supabase project (Settings > API): URL and anon key. Empty = sign-in shows "not set up".
+VAMO_SUPABASE_URL =
+VAMO_SUPABASE_ANON_KEY =

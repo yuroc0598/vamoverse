@@ -48,3 +48,24 @@ export function policyLabel(windowHours: number, lateFeePct: number, noShowPct: 
 export const PAYMENT_PURPOSE_LABELS: Record<string, string> = {
   booking: 'Session', package: 'Package', late_cancel_fee: 'Late-cancel fee', no_show_fee: 'No-show fee',
 }
+
+/** A player's booking status as shown on their Home list. */
+export const BOOKING_STATUS_LABELS: Record<string, string> = {
+  confirmed: 'Booked', held: 'Finish payment', invited: 'Confirm', offered: 'Spot offered: claim it', requested: 'Awaiting coach', waitlisted: 'Waitlist',
+}
+
+export type StatusTone = 'success' | 'warning' | 'muted' | 'error'
+
+/** A booking's status on the coach's roster. */
+export const ROSTER_STATUS_LABELS: Record<string, { label: string; variant: StatusTone }> = {
+  confirmed: { label: 'Booked', variant: 'success' }, attended: { label: 'Attended', variant: 'success' },
+  held: { label: 'Paying', variant: 'warning' }, invited: { label: 'Invited', variant: 'warning' }, offered: { label: 'Spot offered', variant: 'warning' },
+  requested: { label: 'Asking to join', variant: 'warning' }, waitlisted: { label: 'Waitlist', variant: 'muted' },
+  no_show: { label: 'No-show', variant: 'error' }, cancelled: { label: 'Cancelled', variant: 'muted' },
+  late_cancelled: { label: 'Late cancel', variant: 'error' }, declined: { label: 'Declined', variant: 'muted' },
+}
+
+/** A booking's payment status on the coach's roster ('' = show nothing). */
+export const ROSTER_PAYMENT_LABELS: Record<string, string> = {
+  due: 'Owes', failed: 'Payment failed', disputed: 'Disputed', paid: 'Paid', paid_external: 'Paid (outside app)', credit: 'Credit', refunded: 'Refunded', waived: 'Waived', none: '',
+}

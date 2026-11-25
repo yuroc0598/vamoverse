@@ -1,4 +1,5 @@
 // Development-only sign-in (no email delivery needed). Disabled whenever Supabase is configured.
+// Sets the session cookie for browsers and returns the same value as a bearer token for the native app.
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { DEV_SESSION_COOKIE, createDevSession } from '@/server/auth/dev-session'
@@ -21,7 +22,8 @@ export async function POST(req: NextRequest) {
     const userId = (await findUserIdByContact(db, { email })) ?? newId('usr')
     await ensureActor(db, { id: userId, email, name })
     const session = createDevSession(userId)
-    const response = NextResponse.json({ data: { ok: true } })
+    // The native app keeps `token` and sends it as `Authorization: Bearer <token>`; browsers use the cookie.
+    const response = NextResponse.json({ data: { ok: true, token: session.value } })
     response.cookies.set(DEV_SESSION_COOKIE, session.value, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: session.maxAge })
     return response
   } catch (error) {

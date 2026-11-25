@@ -1,0 +1,343 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5A0000000000000000000101 /* VamoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0000000000000000000901 /* VamoKit */; };
+		5A0000000000000000000102 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0000000000000000000902 /* Auth */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5A0000000000000000000701 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5A0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A0000000000000000000301;
+			remoteInfo = Vamoverse;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		5A0000000000000000000201 /* Vamoverse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vamoverse.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A0000000000000000000202 /* VamoverseUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VamoverseUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A0000000000000000000211 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		5A0000000000000000000212 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		5A0000000000000000000213 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		5A0000000000000000000214 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = "<group>"; };
+		5A0000000000000000000215 /* UITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = UITests.xcconfig; sourceTree = "<group>"; };
+		5A0000000000000000000216 /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
+		5A0000000000000000000217 /* Info-Release.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Release.plist"; sourceTree = "<group>"; };
+		5A0000000000000000000218 /* Vamoverse-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Vamoverse-Release.entitlements"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5A0000000000000000000601 /* Vamoverse */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Vamoverse;
+			sourceTree = "<group>";
+		};
+		5A0000000000000000000602 /* VamoverseUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VamoverseUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5A0000000000000000000402 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A0000000000000000000101 /* VamoKit in Frameworks */,
+				5A0000000000000000000102 /* Auth in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A0000000000000000000412 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5A0000000000000000000501 = {
+			isa = PBXGroup;
+			children = (
+				5A0000000000000000000601 /* Vamoverse */,
+				5A0000000000000000000602 /* VamoverseUITests */,
+				5A0000000000000000000503 /* Config */,
+				5A0000000000000000000502 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5A0000000000000000000502 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5A0000000000000000000201 /* Vamoverse.app */,
+				5A0000000000000000000202 /* VamoverseUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5A0000000000000000000503 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				5A0000000000000000000211 /* Shared.xcconfig */,
+				5A0000000000000000000212 /* Debug.xcconfig */,
+				5A0000000000000000000213 /* Release.xcconfig */,
+				5A0000000000000000000214 /* App.xcconfig */,
+				5A0000000000000000000215 /* UITests.xcconfig */,
+				5A0000000000000000000216 /* Info-Debug.plist */,
+				5A0000000000000000000217 /* Info-Release.plist */,
+				5A0000000000000000000218 /* Vamoverse-Release.entitlements */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5A0000000000000000000301 /* Vamoverse */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A0000000000000000000812 /* Build configuration list for PBXNativeTarget "Vamoverse" */;
+			buildPhases = (
+				5A0000000000000000000401 /* Sources */,
+				5A0000000000000000000402 /* Frameworks */,
+				5A0000000000000000000403 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5A0000000000000000000601 /* Vamoverse */,
+			);
+			name = Vamoverse;
+			packageProductDependencies = (
+				5A0000000000000000000901 /* VamoKit */,
+				5A0000000000000000000902 /* Auth */,
+			);
+			productName = Vamoverse;
+			productReference = 5A0000000000000000000201 /* Vamoverse.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5A0000000000000000000302 /* VamoverseUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A0000000000000000000813 /* Build configuration list for PBXNativeTarget "VamoverseUITests" */;
+			buildPhases = (
+				5A0000000000000000000411 /* Sources */,
+				5A0000000000000000000412 /* Frameworks */,
+				5A0000000000000000000413 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5A0000000000000000000702 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5A0000000000000000000602 /* VamoverseUITests */,
+			);
+			name = VamoverseUITests;
+			productName = VamoverseUITests;
+			productReference = 5A0000000000000000000202 /* VamoverseUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					5A0000000000000000000301 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					5A0000000000000000000302 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 5A0000000000000000000301;
+					};
+				};
+			};
+			buildConfigurationList = 5A0000000000000000000811 /* Build configuration list for PBXProject "Vamoverse" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5A0000000000000000000501;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5A0000000000000000000951 /* XCLocalSwiftPackageReference "VamoKit" */,
+				5A0000000000000000000952 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5A0000000000000000000502 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5A0000000000000000000301 /* Vamoverse */,
+				5A0000000000000000000302 /* VamoverseUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5A0000000000000000000403 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A0000000000000000000413 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5A0000000000000000000401 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A0000000000000000000411 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5A0000000000000000000702 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5A0000000000000000000301 /* Vamoverse */;
+			targetProxy = 5A0000000000000000000701 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5A0000000000000000000821 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000212 /* Debug.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5A0000000000000000000822 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000213 /* Release.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		5A0000000000000000000831 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000214 /* App.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5A0000000000000000000832 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000214 /* App.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		5A0000000000000000000841 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000215 /* UITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		5A0000000000000000000842 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5A0000000000000000000215 /* UITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5A0000000000000000000811 /* Build configuration list for PBXProject "Vamoverse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A0000000000000000000821 /* Debug */,
+				5A0000000000000000000822 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A0000000000000000000812 /* Build configuration list for PBXNativeTarget "Vamoverse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A0000000000000000000831 /* Debug */,
+				5A0000000000000000000832 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A0000000000000000000813 /* Build configuration list for PBXNativeTarget "VamoverseUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A0000000000000000000841 /* Debug */,
+				5A0000000000000000000842 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		5A0000000000000000000951 /* XCLocalSwiftPackageReference "VamoKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = VamoKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5A0000000000000000000952 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 2.55.8;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5A0000000000000000000901 /* VamoKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = VamoKit;
+		};
+		5A0000000000000000000902 /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A0000000000000000000952 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5A0000000000000000000001 /* Project object */;
+}

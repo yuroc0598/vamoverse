@@ -10,11 +10,25 @@ export const positiveCents = cents.min(100, 'Minimum is $1')
 export const timeZone = z.string().refine(isValidTimeZone, 'Unknown time zone')
 export const optionalText = (max: number) => z.string().trim().max(max).nullish().transform((v) => v || null)
 
+/**
+ * A self-reported rating, as typed: a number, or text from a form ("3.5", "3,5"; empty clears it).
+ * Parsing happens here so the web and the native app get the same message for anything else.
+ */
+const rating = (name: string, min: number, max: number, step?: number) => z.preprocess(
+  (value) => {
+    if (typeof value !== 'string') return value
+    const text = value.trim().replace(',', '.')
+    return text === '' ? null : Number(text)
+  },
+  (step ? z.number({ error: 'Ratings must be numbers, like 3.5.' }).multipleOf(step, `${name} goes in steps of ${step}.`) : z.number({ error: 'Ratings must be numbers, like 3.5.' }))
+    .min(min, `${name} is between ${min} and ${max}.`).max(max, `${name} is between ${min} and ${max}.`).nullish(),
+)
+
 export const ratings = {
-  utrSingles: z.number().min(1).max(16.5).nullish(),
-  utrDoubles: z.number().min(1).max(16.5).nullish(),
-  ntrp: z.number().min(1).max(7).multipleOf(0.5).nullish(),
-  wtn: z.number().min(1).max(40).nullish(),
+  utrSingles: rating('UTR', 1, 16.5),
+  utrDoubles: rating('UTR', 1, 16.5),
+  ntrp: rating('NTRP', 1, 7, 0.5),
+  wtn: rating('WTN', 1, 40),
 }
 
 export const gender = z.enum(['male', 'female', 'nonbinary']).nullish()

@@ -2,29 +2,10 @@ import Link from 'next/link'
 import { CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { SessionDetails } from '@/components/session-details'
 import { formatMoney } from '@/lib/format'
-import { formatDateTime } from '@/lib/time'
 import { orNotFound } from '@/server/auth/guards'
 import { currentActor } from '@/server/auth/session'
 import { runAs } from '@/server/commands/run'
-import type { BookingDetail } from '@/server/modules/bookings/queries'
 import { BookingActions } from './booking-actions'
-
-function headline({ booking, session }: BookingDetail): { tone: 'good' | 'wait' | 'bad'; title: string; body?: string } {
-  const until = (d: Date | null) => (d ? formatDateTime(d, session.timezone) : 'soon')
-  switch (booking.status) {
-    case 'confirmed': return { tone: 'good', title: `${booking.paymentStatus === 'due' && booking.paymentRule === 'pay_after' ? 'Booked; you’ll be charged after the session' : 'You’re booked'}` }
-    case 'attended': return { tone: 'good', title: 'Session completed', body: booking.paymentStatus === 'failed' ? 'The payment didn’t go through. Update your card below.' : undefined }
-    case 'held': return { tone: 'wait', title: booking.paymentRule === 'pay_now' ? 'Finish paying to confirm' : 'Save a card to confirm', body: `Your spot is held until ${until(booking.holdExpiresAt)}.` }
-    case 'offered': return { tone: 'wait', title: 'A spot opened for you', body: `Claim it by ${until(booking.offerExpiresAt)}.` }
-    case 'invited': return { tone: 'wait', title: `${session.providerName} added you`, body: `Confirm by ${until(booking.offerExpiresAt)}.` }
-    case 'requested': return { tone: 'wait', title: 'Waiting for the coach to confirm', body: 'We’ll text and email you as soon as they do.' }
-    case 'waitlisted': return { tone: 'wait', title: 'You’re on the waitlist', body: 'If a spot opens we’ll let you know right away. Nothing is charged until then.' }
-    case 'no_show': return { tone: 'bad', title: 'Marked as a no-show' }
-    case 'declined': return { tone: 'bad', title: 'Not booked', body: 'Check the coach’s page for other times.' }
-    case 'expired': return { tone: 'bad', title: 'This hold expired', body: booking.paymentStatus === 'refunded' ? 'The spot was taken; you were refunded in full.' : 'Book again any time.' }
-    default: return { tone: 'bad', title: 'Cancelled', body: booking.paymentStatus === 'refunded' ? 'Refunded.' : undefined }
-  }
-}
 
 const ICON = { good: CheckCircle2, wait: Clock, bad: XCircle }
 const TONE = { good: 'bg-green-50 text-green-900', wait: 'bg-amber-50 text-amber-900', bad: 'bg-gray-100 text-gray-800' }
@@ -33,7 +14,7 @@ export default async function BookingPage({ params, searchParams }: { params: Pr
   const [{ id }, { t: token, paid }] = await Promise.all([params, searchParams])
   const actor = await currentActor()
   const detail = await orNotFound(runAs(actor)('bookings.get', { bookingId: id, token }))
-  const h = headline(detail)
+  const h = detail.headline
   const Icon = ICON[h.tone]
   const { booking, session } = detail
   return (

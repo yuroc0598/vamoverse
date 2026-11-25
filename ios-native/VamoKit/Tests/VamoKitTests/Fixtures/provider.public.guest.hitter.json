@@ -1,0 +1,21 @@
+{
+  "data": {
+    "id": "pro_3ffd9503ddd1452584ddf37652d9222e",
+    "slug": "sam-okafor",
+    "displayName": "Sam Okafor",
+    "avatarUrl": null,
+    "offersCoaching": false,
+    "offersHitting": true,
+    "headline": "Former D1 player · consistent, heavy ball",
+    "bio": null,
+    "homeArea": "Fremont",
+    "timezone": "America/Los_Angeles",
+    "ratePrivateCents": null,
+    "rateHittingCents": 6000,
+    "cancelWindowHours": 24,
+    "lateCancelFeePct": 50,
+    "noShowFeePct": 100,
+    "safetyVerified": false,
+    "acceptsPayments": true
+  }
+}

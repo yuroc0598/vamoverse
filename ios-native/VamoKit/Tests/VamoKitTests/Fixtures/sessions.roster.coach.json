@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "bookingId": "bkg_1c3bdead9fcf49389b4efad5fd78ed48",
+      "playerId": "ply_b72d401503c44b44ab7c84797aa32424",
+      "playerName": "Maya Chen",
+      "junior": false,
+      "contactName": "Maya Chen",
+      "contactEmail": "maya@demo.vamoverse.app",
+      "contactPhone": null,
+      "status": "confirmed",
+      "paymentRule": "pay_now",
+      "paymentStatus": "paid",
+      "priceCents": 4000,
+      "waitlistedAt": null
+    },
+    {
+      "bookingId": "bkg_c50a7b3ec4d746beb7662afe80ae2848",
+      "playerId": "ply_b2485cea1f434c55ac37d67f304bc0e1",
+      "playerName": "Sarah Patel",
+      "junior": false,
+      "contactName": "Sarah Patel",
+      "contactEmail": "sarah@demo.vamoverse.app",
+      "contactPhone": null,
+      "status": "confirmed",
+      "paymentRule": "pay_now",
+      "paymentStatus": "paid",
+      "priceCents": 4000,
+      "waitlistedAt": null
+    }
+  ]
+}

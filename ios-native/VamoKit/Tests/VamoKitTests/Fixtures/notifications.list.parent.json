@@ -1,0 +1,16 @@
+{
+  "data": {
+    "items": [
+      {
+        "id": "ntf_a720247496a046f5a88116beddc4dfc3",
+        "kind": "booking.confirmed",
+        "title": "You’re booked: Junior Development (10–14)",
+        "body": "Fri, Nov 27, 3:30 PM at Central Park Tennis Center.",
+        "link": "/b/bkg_8879f778d0104c51ab1d0e804a0b63a7?t=A7H-s9h2_sQ-a1wWq3Fght5psOOh4glV",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.110Z"
+      }
+    ],
+    "unread": 1
+  }
+}

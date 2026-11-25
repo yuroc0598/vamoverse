@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "pkg_9335c5b2dcde433ea28f74fa050b2037",
+      "providerId": "pro_f57b2bc8fe0c4ba095651aaaf8638352",
+      "name": "10 private lessons",
+      "credits": 10,
+      "priceCents": 80000,
+      "validDays": 180,
+      "kinds": [
+        "private"
+      ],
+      "active": true
+    }
+  ]
+}

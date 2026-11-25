@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "id": "ply_b72d401503c44b44ab7c84797aa32424",
+      "userId": "usr_38c632b5079b45e3a325bbb296c002ea",
+      "guardianUserId": null,
+      "displayName": "Maya Chen",
+      "birthDate": null,
+      "gender": "female",
+      "utrSingles": null,
+      "utrDoubles": null,
+      "ntrp": 3.5,
+      "wtn": null,
+      "utrProfileId": null
+    }
+  ]
+}

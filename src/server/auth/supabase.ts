@@ -19,6 +19,13 @@ export async function supabaseServerClient() {
   })
 }
 
+/** Stateless client for verifying a bearer access token from the native app (`auth.getUser(token)`). */
+export function supabaseTokenClient() {
+  const config = supabaseConfig()
+  if (!config) throw new Error('Supabase is not configured')
+  return createClient(config.url, config.anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+}
+
 /** Service-role client for admin operations (creating accounts for guest checkout). */
 export function supabaseAdminClient() {
   const config = supabaseConfig()

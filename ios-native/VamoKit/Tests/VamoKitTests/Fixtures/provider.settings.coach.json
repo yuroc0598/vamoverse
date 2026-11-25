@@ -1,0 +1,28 @@
+{
+  "data": {
+    "id": "pro_f57b2bc8fe0c4ba095651aaaf8638352",
+    "userId": "usr_1197ab99aac14b5da32b1cb73ea26714",
+    "slug": "alex-rivera",
+    "displayName": "Alex Rivera",
+    "offersCoaching": true,
+    "offersHitting": false,
+    "headline": "USPTA pro · adult doubles and junior development",
+    "bio": null,
+    "homeArea": "Fremont & San Jose",
+    "timezone": "America/Los_Angeles",
+    "ratePrivateCents": 9000,
+    "rateSemiPrivateCents": 6000,
+    "rateGroupCents": 4000,
+    "rateHittingCents": null,
+    "cancelWindowHours": 24,
+    "lateCancelFeePct": 50,
+    "noShowFeePct": 100,
+    "listed": true,
+    "plan": "free",
+    "planStatus": null,
+    "chargesEnabled": true,
+    "payoutsEnabled": true,
+    "stripeAccountId": "acct_dev_1aaaf8638352",
+    "safetyStatus": "verified"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "data": {
+    "payments": [
+      {
+        "id": "pay_81ba95b7c23f42a6ae101014af5ea20a",
+        "providerId": "pro_f57b2bc8fe0c4ba095651aaaf8638352",
+        "payerUserId": "usr_38c632b5079b45e3a325bbb296c002ea",
+        "purpose": "booking",
+        "bookingId": "bkg_1c3bdead9fcf49389b4efad5fd78ed48",
+        "packagePurchaseId": null,
+        "amountCents": 4000,
+        "platformFeeCents": 80,
+        "refundRequestedCents": 0,
+        "refundedCents": 0,
+        "mode": "checkout",
+        "paymentMethodId": null,
+        "attempts": 0,
+        "status": "succeeded",
+        "checkoutUrl": "http://localhost:3000/dev/simulate?action=checkout&id=pay_81ba95b7c23f42a6ae101014af5ea20a",
+        "paymentIntentId": "pi_dev_pay_81ba95b7c23f42a6ae101014af5ea20a",
+        "failureMessage": null,
+        "createdAt": "2026-11-25T06:19:32.061Z",
+        "providerName": "Alex Rivera"
+      }
+    ],
+    "card": {
+      "id": "pm_dev_96c002ea4242",
+      "brand": "visa",
+      "last4": "4242"
+    }
+  }
+}

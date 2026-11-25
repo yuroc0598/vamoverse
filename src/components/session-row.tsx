@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { KIND_LABELS, levelLabel, priceLabel, seatsLabel } from '@/lib/format'
-import { formatSessionRange } from '@/lib/time'
+import { formatDayHeading, formatSessionRange } from '@/lib/time'
 import type { SessionView } from '@/server/modules/schedule/sessions'
 
 export function SessionRow({ session, href, showPrice = true, aside }: {
@@ -38,7 +38,7 @@ export function SessionRow({ session, href, showPrice = true, aside }: {
 export function groupByDay<T extends { startsAt: Date | string; timezone: string }>(items: T[]): { day: string; items: T[] }[] {
   const groups = new Map<string, T[]>()
   for (const item of items) {
-    const day = new Intl.DateTimeFormat('en-US', { timeZone: item.timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(item.startsAt))
+    const day = formatDayHeading(item.startsAt, item.timezone)
     groups.set(day, [...(groups.get(day) ?? []), item])
   }
   return [...groups].map(([day, list]) => ({ day, items: list }))

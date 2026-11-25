@@ -93,11 +93,14 @@ export interface AccountDetails {
   phone: string | null
   notifyEmail: boolean
   notifySms: boolean
+  /** Push notifications to the iPhone app (on phones where it's installed and allowed). */
+  notifyPush: boolean
 }
 
 export async function getAccount(db: Db, userId: string): Promise<AccountDetails> {
   const row = await maybeOne<AccountDetails>(db,
-    `SELECT display_name AS "displayName", email, phone, notify_email AS "notifyEmail", notify_sms AS "notifySms"
+    `SELECT display_name AS "displayName", email, phone, notify_email AS "notifyEmail", notify_sms AS "notifySms",
+       notify_push AS "notifyPush"
      FROM users WHERE id = $1`, [userId])
   if (!row) throw fail.notFound('Account')
   return row
@@ -139,7 +142,8 @@ export async function deleteAccount(db: Db, actor: Actor): Promise<void> {
     await forgetPlayersInBookings(t, players.map((p) => p.id))
     await t.query(`DELETE FROM players WHERE guardian_user_id = $1`, [actor.userId])
     await t.query(`DELETE FROM conversation_members WHERE user_id = $1`, [actor.userId])
-    for (const table of ['assistant_messages', 'assistant_pending_actions', 'notifications', 'payment_methods']) {
+    // devices: a deleted account must never get another push on a phone it was signed in on.
+    for (const table of ['assistant_messages', 'assistant_pending_actions', 'notifications', 'payment_methods', 'devices']) {
       await t.query(`DELETE FROM ${table} WHERE user_id = $1`, [actor.userId])
     }
     // A deleted coach's business stops: no series, no future sessions, no way to take money.
@@ -156,7 +160,7 @@ export async function deleteAccount(db: Db, actor: Actor): Promise<void> {
     await t.query(`UPDATE players SET display_name = 'Deleted player', birth_date = NULL, gender = NULL, utr_singles = NULL, utr_doubles = NULL,
                      ntrp = NULL, wtn = NULL, utr_profile_id = NULL WHERE user_id = $1`, [actor.userId])
     await t.query(`UPDATE users SET display_name = 'Deleted user', email = 'deleted+' || id || '@invalid', phone = NULL, avatar_url = NULL,
-                     notify_email = false, notify_sms = false, stripe_customer_id = NULL WHERE id = $1`, [actor.userId])
+                     notify_email = false, notify_sms = false, notify_push = false, stripe_customer_id = NULL WHERE id = $1`, [actor.userId])
   })
   if (authMode() === 'supabase') {
     const { supabaseAdminClient } = await import('../../auth/supabase')

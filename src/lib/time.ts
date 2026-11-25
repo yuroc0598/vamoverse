@@ -88,6 +88,11 @@ export function formatTime(instant: Date | string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(instant))
 }
 
+/** "Wednesday, November 25": the day headings above grouped sessions. */
+export function formatDayHeading(instant: Date | string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(instant))
+}
+
 /** "Tue, Dec 2 · 6:00 – 7:30 PM" */
 export function formatSessionRange(startsAt: Date | string, endsAt: Date | string, timeZone: string): string {
   return `${formatDateTime(startsAt, timeZone, { hour: undefined, minute: undefined })} · ${formatTime(startsAt, timeZone)} – ${formatTime(endsAt, timeZone)}`

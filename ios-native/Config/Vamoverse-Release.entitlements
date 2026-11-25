@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push notifications (APNs production). -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Universal links: https://vamoverse.app/.well-known/apple-app-site-association (needs APPLE_TEAM_ID on the server). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:vamoverse.app</string>
+	</array>
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

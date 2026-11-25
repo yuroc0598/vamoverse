@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import { assistantCommands } from '../modules/assistant/commands'
 import { bookingCommands } from '../modules/bookings/commands'
 import { clientCommands } from '../modules/clients/commands'
+import { deviceCommands } from '../modules/devices/commands'
 import { discoveryCommands } from '../modules/discovery/commands'
 import { messagingCommands } from '../modules/messaging/commands'
 import { notificationCommands } from '../modules/notifications/commands'
@@ -21,6 +22,7 @@ export const commands = {
   ...packageCommands,
   ...clientCommands,
   ...notificationCommands,
+  ...deviceCommands,
   ...messagingCommands,
   ...discoveryCommands,
   ...assistantCommands,

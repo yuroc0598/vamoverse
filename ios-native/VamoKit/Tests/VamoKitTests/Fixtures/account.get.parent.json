@@ -1,0 +1,10 @@
+{
+  "data": {
+    "displayName": "Dave Kim",
+    "email": "dave@demo.vamoverse.app",
+    "phone": null,
+    "notifyEmail": true,
+    "notifySms": true,
+    "notifyPush": true
+  }
+}

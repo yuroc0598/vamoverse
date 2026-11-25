@@ -1,0 +1,35 @@
+{
+  "data": {
+    "id": "off_7d731cd51e214601b971dceb1364a0d5",
+    "providerId": "pro_3ffd9503ddd1452584ddf37652d9222e",
+    "kind": "hitting",
+    "title": "Hitting session",
+    "description": null,
+    "discipline": null,
+    "audience": "adults",
+    "capacity": 1,
+    "priceCents": 6000,
+    "paymentRule": "pay_now",
+    "acceptsCredits": false,
+    "levelSystem": null,
+    "levelMin": null,
+    "levelMax": null,
+    "visibility": "public",
+    "courtId": null,
+    "locationName": null,
+    "locationNote": null,
+    "timezone": "America/Los_Angeles",
+    "startDate": "2026-11-25",
+    "startTime": "07:00",
+    "durationMinutes": 60,
+    "slotsPerDay": 2,
+    "repeatWeekdays": [
+      0,
+      3,
+      6
+    ],
+    "repeatEveryWeeks": 1,
+    "endDate": null,
+    "status": "active"
+  }
+}

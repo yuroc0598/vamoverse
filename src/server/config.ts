@@ -40,6 +40,24 @@ export const smsMode = (): 'twilio' | 'log' | 'off' =>
   env('TWILIO_ACCOUNT_SID') && env('TWILIO_AUTH_TOKEN') && env('TWILIO_FROM') ? 'twilio' : isProduction() ? 'off' : 'log'
 export const aiEnabled = (): boolean => Boolean(env('ANTHROPIC_API_KEY'))
 
+/** Apple Team ID: APNs provider tokens and the universal-links file (apple-app-site-association). */
+export const appleTeamId = (): string | undefined => env('APPLE_TEAM_ID')
+
+/** APNs token auth (.p8 key). APNS_PRIVATE_KEY may use literal "\n" for line breaks (one-line env vars). */
+export function apnsConfig() {
+  const keyId = env('APNS_KEY_ID')
+  const privateKey = env('APNS_PRIVATE_KEY')?.replace(/\\n/g, '\n')
+  const teamId = appleTeamId()
+  return keyId && privateKey && teamId ? { keyId, privateKey, teamId, topic: env('APNS_TOPIC') || 'com.vamoverse.app' } : null
+}
+
+/** Push to the native app: APNs when configured, the log in development, off in production without keys. PUSH_MODE overrides. */
+export function pushMode(): 'apns' | 'log' | 'off' {
+  const forced = env('PUSH_MODE')
+  if (forced === 'apns' || forced === 'log' || forced === 'off') return forced
+  return apnsConfig() ? 'apns' : isProduction() ? 'off' : 'log'
+}
+
 export function secret(name: 'CRON_SECRET' | 'DEV_SESSION_SECRET' | 'LINK_SECRET'): string {
   const value = env(name)
   if (value) return value

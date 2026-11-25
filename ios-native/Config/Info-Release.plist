@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>VamoBaseURL</key>
+	<string>$(VAMO_BASE_URL)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.vamoverse.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- vamoverse://b/<id>?t=… opens a booking; vamoverse://login-callback finishes sign-in. -->
+				<string>vamoverse</string>
+			</array>
+		</dict>
+	</array>
+	<key>VamoSupabaseURL</key>
+	<string>$(VAMO_SUPABASE_URL)</string>
+	<key>VamoSupabaseAnonKey</key>
+	<string>$(VAMO_SUPABASE_ANON_KEY)</string>
+</dict>
+</plist>

@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "id": "crt_aed35557f03b48b09e37238a23739315",
+      "name": "Central Park Tennis Center",
+      "address": "40000 Paseo Padre Pkwy, Fremont, CA",
+      "notes": null,
+      "bookingUrl": "https://example.com/courts",
+      "bookingNote": "Opens 7 days ahead at 8am"
+    }
+  ]
+}

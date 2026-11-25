@@ -52,10 +52,10 @@ export function ClientNotes({ playerId, notes }: { playerId: string; notes: stri
 }
 
 /** Opens the coach's own Messages or mail app with the invite filled in; Vamoverse sends nothing on their behalf. */
-export function InviteRow({ invite, coachName, joinUrl }: { invite: { id: string; name: string; email: string | null; phone: string | null }; coachName: string; joinUrl: string }) {
+export function InviteRow({ invite }: { invite: { id: string; name: string; email: string | null; phone: string | null; subject: string; message: string } }) {
   const router = useRouter()
   const remove = useCommand('clients.removeInvite')
-  const message = `Hi ${invite.name.split(' ')[0]}, it’s ${coachName}. I’m using Vamoverse for lessons and clinics now. Book and pay here: ${joinUrl}`
+  const { subject, message } = invite
   return (
     <li className="flex items-center justify-between gap-3 p-3 text-sm">
       <div className="min-w-0">
@@ -64,7 +64,7 @@ export function InviteRow({ invite, coachName, joinUrl }: { invite: { id: string
       </div>
       <div className="flex shrink-0 gap-3">
         {invite.phone && <a className="text-court-500 underline" href={`sms:${invite.phone}?&body=${encodeURIComponent(message)}`}>Text</a>}
-        {invite.email && <a className="text-court-500 underline" href={`mailto:${invite.email}?subject=${encodeURIComponent(`Book with ${coachName}`)}&body=${encodeURIComponent(message)}`}>Email</a>}
+        {invite.email && <a className="text-court-500 underline" href={`mailto:${invite.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`}>Email</a>}
         <button className="text-muted-foreground hover:text-foreground" disabled={remove.pending}
           onClick={async () => { if (await remove.run({ inviteId: invite.id })) router.refresh() }}>Remove</button>
       </div>

@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "bad_request",
+    "message": "Choose who to message",
+    "details": {
+      "formErrors": [
+        "Choose who to message"
+      ],
+      "fieldErrors": {}
+    }
+  }
+}

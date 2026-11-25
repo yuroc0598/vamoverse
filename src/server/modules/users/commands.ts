@@ -29,10 +29,15 @@ export const userCommands = {
     summary: 'Update your name or notification preferences.',
     access: 'user',
     mutates: true,
-    input: z.object({ displayName: personName.optional(), notifyEmail: z.boolean().optional(), notifySms: z.boolean().optional() }),
+    input: z.object({
+      displayName: personName.optional(),
+      notifyEmail: z.boolean().optional(),
+      notifySms: z.boolean().optional(),
+      notifyPush: z.boolean().optional(),
+    }),
     run: async ({ actor, db }, input) => {
       await tx(async (t) => {
-        await updateRow(t, 'users', actor.userId, { notify_email: input.notifyEmail, notify_sms: input.notifySms })
+        await updateRow(t, 'users', actor.userId, { notify_email: input.notifyEmail, notify_sms: input.notifySms, notify_push: input.notifyPush })
         if (input.displayName) await renamePlayer(t, actor.playerId, input.displayName)
       })
       return loadActor(db, actor.userId)

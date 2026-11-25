@@ -9,7 +9,7 @@ export interface Step {
 }
 
 /** Read access to the run's database (the in-process PGlite instance). */
-interface Db {
+export interface Db {
   query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>
 }
 
@@ -18,11 +18,11 @@ interface Ctx {
   db: Db
 }
 
-function check(condition: unknown, message: string): asserts condition {
+export function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-async function one<T>(db: Db, sql: string, params: unknown[] = []): Promise<T> {
+export async function one<T>(db: Db, sql: string, params: unknown[] = []): Promise<T> {
   const { rows } = await db.query<T>(sql, params)
   check(rows.length, `Expected a row for: ${sql.replace(/\s+/g, ' ').slice(0, 120)}`)
   return rows[0]
@@ -31,7 +31,7 @@ async function one<T>(db: Db, sql: string, params: unknown[] = []): Promise<T> {
 const userIdOf = (db: Db, email: string) => one<{ id: string }>(db, `SELECT id FROM users WHERE email = $1`, [email]).then((r) => r.id)
 
 /** An open session of an offering kind/payment rule that nobody has booked yet. */
-function freeSession(db: Db, where: string) {
+export function freeSession(db: Db, where: string) {
   return one<{ id: string; startsAt: Date; endsAt: Date }>(db, `
     SELECT s.id, s.starts_at AS "startsAt", s.ends_at AS "endsAt" FROM sessions s JOIN offerings o ON o.id = s.offering_id
     WHERE s.status = 'scheduled' AND s.starts_at > now() + interval '2 hours' AND ${where}

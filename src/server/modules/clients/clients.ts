@@ -2,6 +2,8 @@
 // booking). Imported contacts are invites holding only what the coach typed: nothing is looked
 // up, created, or sent on the coach's behalf.
 import { z } from 'zod'
+import { parseContacts, type ContactRow } from '@/lib/contacts'
+import { appUrl } from '../../config'
 import { maybeOne, type Db } from '../../db'
 import { fail } from '../../errors'
 import { personName, optionalText } from '../../schemas'
@@ -51,8 +53,23 @@ export const contactRow = z.object({
   phone: z.string().trim().max(32).nullish().transform((v) => v || null),
 })
 
-export interface Invite { id: string; name: string; email: string | null; phone: string | null; createdAt: Date }
-export interface ImportResult { added: number; duplicates: number; failed: { name: string; reason: string }[] }
+export interface Invite {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  createdAt: Date
+  /** What the coach sends from their own phone or email (subject is for email). */
+  subject: string
+  message: string
+}
+export interface ImportResult {
+  added: number
+  duplicates: number
+  failed: { name: string; reason: string }[]
+  /** Pasted lines that had no name or no email/phone (only when importing `text`). */
+  skipped: string[]
+}
 
 const MAX_PENDING_INVITES = 2000
 
@@ -60,7 +77,7 @@ const MAX_PENDING_INVITES = 2000
 export async function importInvites(db: Db, providerId: string, rows: z.output<typeof contactRow>[]): Promise<ImportResult> {
   const pending = (await maybeOne<{ n: number }>(db, `SELECT count(*)::int AS n FROM client_invites WHERE provider_id = $1 AND status = 'pending'`, [providerId]))!.n
   if (pending + rows.length > MAX_PENDING_INVITES) throw fail.conflict(`You can have up to ${MAX_PENDING_INVITES} pending invites. Remove some first.`)
-  const result: ImportResult = { added: 0, duplicates: 0, failed: [] }
+  const result: ImportResult = { added: 0, duplicates: 0, failed: [], skipped: [] }
   for (const row of rows) {
     try {
       if (!row.email && !row.phone) throw fail.badRequest('Needs an email or phone number')
@@ -76,10 +93,51 @@ export async function importInvites(db: Db, providerId: string, rows: z.output<t
   return result
 }
 
+const MAX_IMPORT_ROWS = 500
+
+export interface ImportPreview {
+  /** Lines with a name and an email or phone (the web's "N ready to add"). */
+  rows: ContactRow[]
+  /** Lines missing a name or an email/phone. */
+  skipped: string[]
+}
+
+/** What saving this pasted text would add, without saving anything (the native app's live preview). */
+export function previewInviteText(text: string): ImportPreview {
+  const { rows, skipped } = parseContacts(text)
+  return { rows: rows.slice(0, MAX_IMPORT_ROWS), skipped }
+}
+
+/** Saves pasted text (one person per line) as invites, parsed exactly like the web's paste preview. */
+export async function importInviteText(db: Db, providerId: string, text: string): Promise<ImportResult> {
+  const { rows, skipped } = parseContacts(text)
+  if (!rows.length) throw fail.badRequest(skipped.length ? 'Each line needs a name and an email or phone number.' : 'Paste at least one contact.')
+  if (rows.length > MAX_IMPORT_ROWS) throw fail.badRequest(`Import up to ${MAX_IMPORT_ROWS} contacts at a time.`)
+  const valid: z.output<typeof contactRow>[] = []
+  const failed: ImportResult['failed'] = []
+  for (const row of rows) {
+    const parsed = contactRow.safeParse(row)
+    if (parsed.success) valid.push(parsed.data)
+    else failed.push({ name: row.name, reason: parsed.error.issues[0]?.message ?? 'Could not add' })
+  }
+  const result = valid.length ? await importInvites(db, providerId, valid) : { added: 0, duplicates: 0, failed: [], skipped: [] }
+  return { ...result, failed: [...failed, ...result.failed], skipped }
+}
+
+/** The invite a coach sends from their own phone or email; Vamoverse sends nothing itself. */
+function inviteText(inviteeName: string, coachName: string, joinUrl: string): { subject: string; message: string } {
+  return {
+    subject: `Book with ${coachName}`,
+    message: `Hi ${inviteeName.split(' ')[0]}, it’s ${coachName}. I’m using Vamoverse for lessons and clinics now. Book and pay here: ${joinUrl}`,
+  }
+}
+
 export async function listInvites(db: Db, providerId: string): Promise<Invite[]> {
-  return db.query<Invite>(
-    `SELECT id, name, email, phone, created_at AS "createdAt" FROM client_invites
-     WHERE provider_id = $1 AND status = 'pending' ORDER BY name`, [providerId])
+  const rows = await db.query<Omit<Invite, 'subject' | 'message'> & { coachName: string; slug: string }>(
+    `SELECT i.id, i.name, i.email, i.phone, i.created_at AS "createdAt", u.display_name AS "coachName", pr.slug
+     FROM client_invites i JOIN providers pr ON pr.id = i.provider_id JOIN users u ON u.id = pr.user_id
+     WHERE i.provider_id = $1 AND i.status = 'pending' ORDER BY i.name`, [providerId])
+  return rows.map(({ coachName, slug, ...invite }) => ({ ...invite, ...inviteText(invite.name, coachName, `${appUrl()}/p/${slug}`) }))
 }
 
 export async function removeInvite(db: Db, providerId: string, inviteId: string): Promise<void> {

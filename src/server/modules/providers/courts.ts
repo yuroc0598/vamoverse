@@ -21,7 +21,8 @@ export const courtInput = z.object({
   name: z.string().trim().min(1).max(120),
   address: optionalText(200),
   notes: optionalText(500),
-  bookingUrl: z.url({ protocol: /^https$/, error: 'Use an https:// link' }).nullish().transform((v) => v || null),
+  // An empty field means no link (forms send '').
+  bookingUrl: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? null : v), z.url({ protocol: /^https$/, error: 'Use an https:// link' }).nullish().transform((v) => v || null)),
   bookingNote: optionalText(200),
 })
 

@@ -2,17 +2,13 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState, PageHeader, Section } from '@/components/page'
 import { SessionRow, groupByDay } from '@/components/session-row'
-import { formatMoney } from '@/lib/format'
+import { BOOKING_STATUS_LABELS, formatMoney } from '@/lib/format'
 import { DEFAULT_TIME_ZONE, formatDateTime } from '@/lib/time'
 import { requireOnboarded } from '@/server/auth/guards'
 import { runAs } from '@/server/commands/run'
 import type { ProviderActor } from '@/server/commands/define'
 import type { Actor } from '@/server/modules/users/accounts'
 import { bookingPath } from '@/server/modules/bookings/links'
-
-const STATUS: Record<string, string> = {
-  confirmed: 'Booked', held: 'Finish payment', invited: 'Confirm', offered: 'Spot offered: claim it', requested: 'Awaiting coach', waitlisted: 'Waitlist',
-}
 
 export default async function TodayPage() {
   const actor = await requireOnboarded()
@@ -81,7 +77,7 @@ async function PlayerToday({ actor, compact }: { actor: Actor; compact: boolean 
           <div className="space-y-2">
             {bookings.map((b) => (
               <SessionRow key={b.id} session={b.session} href={bookingPath(b.id)}
-                aside={<Badge variant={b.status === 'confirmed' ? 'success' : 'warning'}>{b.playerName === actor.displayName ? '' : `${b.playerName} · `}{STATUS[b.status] ?? b.status}</Badge>} />
+                aside={<Badge variant={b.status === 'confirmed' ? 'success' : 'warning'}>{b.playerName === actor.displayName ? '' : `${b.playerName} · `}{BOOKING_STATUS_LABELS[b.status] ?? b.status}</Badge>} />
             ))}
           </div>
         )}

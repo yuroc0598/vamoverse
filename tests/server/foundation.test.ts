@@ -6,6 +6,7 @@ import { ensureActor, findUserIdByContact, normalizePhone, withNewAccount } from
 import { addDays, formatSessionRange, weekdayOf, zonedParts, zonedToUtc } from '@/lib/time'
 import { resetDb } from '../helpers/db'
 import { as } from '../helpers/run'
+import { makeUser } from '../helpers/factories'
 
 beforeEach(resetDb)
 
@@ -81,5 +82,17 @@ describe('time', () => {
     expect(addDays('2026-12-30', 3)).toBe('2027-01-02')
     expect(weekdayOf('2026-11-23')).toBe(1)
     expect(formatSessionRange('2026-12-02T02:00:00Z', '2026-12-02T03:30:00Z', 'America/Los_Angeles')).toBe('Tue, Dec 1 · 6:00 PM – 7:30 PM')
+  })
+})
+
+describe('ratings typed into forms', () => {
+  it('parses text, clears on empty, and explains anything else (same message for web and native)', async () => {
+    const maya = await makeUser('Maya')
+    const update = (fields: Record<string, unknown>) => as(maya)('players.update', { playerId: maya.playerId, ...fields } as never)
+    expect(await update({ ntrp: '3.5', utrSingles: ' 7,25 ', utrDoubles: 6 })).toMatchObject({ ntrp: 3.5, utrSingles: 7.25, utrDoubles: 6 })
+    expect(await update({ ntrp: '', utrSingles: null })).toMatchObject({ ntrp: null, utrSingles: null, utrDoubles: 6 })
+    await expect(update({ ntrp: 'abc' })).rejects.toMatchObject({ code: 'bad_request', message: 'ntrp: Ratings must be numbers, like 3.5.' })
+    await expect(update({ utrSingles: '20' })).rejects.toMatchObject({ message: 'utrSingles: UTR is between 1 and 16.5.' })
+    await expect(update({ ntrp: '3.7' })).rejects.toMatchObject({ message: 'ntrp: NTRP goes in steps of 0.5.' })
   })
 })

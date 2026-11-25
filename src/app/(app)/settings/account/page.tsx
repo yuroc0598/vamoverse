@@ -12,7 +12,7 @@ export default async function AccountSettingsPage() {
   return (
     <>
       <Section title="Account" description={actor.email ?? actor.phone ?? undefined}>
-        <AccountForm displayName={actor.displayName} notifyEmail={account.notifyEmail} notifySms={account.notifySms} hasPhone={Boolean(actor.phone)} />
+        <AccountForm displayName={actor.displayName} notifyEmail={account.notifyEmail} notifySms={account.notifySms} notifyPush={account.notifyPush} hasPhone={Boolean(actor.phone)} />
       </Section>
       <Section title="Your player profile" description="Helps coaches place you in the right group. Everything here is optional.">
         <PlayerProfileForm player={me} />

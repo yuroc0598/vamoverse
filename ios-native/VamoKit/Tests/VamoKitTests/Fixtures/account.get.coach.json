@@ -1,0 +1,10 @@
+{
+  "data": {
+    "displayName": "Alex Rivera",
+    "email": "alex@demo.vamoverse.app",
+    "phone": null,
+    "notifyEmail": true,
+    "notifySms": true,
+    "notifyPush": true
+  }
+}

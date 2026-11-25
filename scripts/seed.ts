@@ -75,11 +75,15 @@ async function main() {
   const [juniorSession] = await db.query<{ id: string }>(`SELECT id FROM sessions WHERE offering_id = $1 ORDER BY starts_at LIMIT 1`, [juniors.offering.id])
   await runAs(dave)('bookings.create', { sessionId: juniorSession.id, playerId: leo.id })
   await coach('clients.import', { contacts: [{ name: 'Priya Shah', email: 'priya@demo.vamoverse.app' }, { name: 'Tom Lee', phone: '(415) 555-0142' }] })
+  // One conversation, so Messages isn't empty (Maya is in Alex's crew from her clinic booking).
+  const { threadId } = await runAs(maya)('messages.start', { providerId: alex.providerId })
+  await runAs(maya)('messages.send', { threadId, body: 'Hi Alex! Could we work on my second serve at the clinic this week?' })
+  await coach('messages.send', { threadId, body: 'Absolutely. Bring a basket of balls and we’ll start with the toss.' })
 
   console.log(`Seeded. Sign in at /login with:
   alex@demo.vamoverse.app   coach (payouts connected, safety verified)
   sam@demo.vamoverse.app    paid hitting partner
-  maya@demo.vamoverse.app   player, booked into the clinic
+  maya@demo.vamoverse.app   player, booked into the clinic, messaging Alex
   dave@demo.vamoverse.app   parent of Leo (junior clinic)`)
 }
 

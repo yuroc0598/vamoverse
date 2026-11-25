@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { command } from '../../commands/define'
 import { profileSlug } from '../../schemas'
-import { clientUpdateInput, contactRow, importInvites, joinCrew, leaveCrew, listClients, listInvites, listMyCoaches, removeInvite, updateClient } from './clients'
+import { clientUpdateInput, contactRow, importInviteText, importInvites, previewInviteText, joinCrew, leaveCrew, listClients, listInvites, listMyCoaches, removeInvite, updateClient } from './clients'
 
 export const clientCommands = {
   'clients.list': command({
@@ -13,15 +13,26 @@ export const clientCommands = {
   }),
 
   'clients.import': command({
-    summary: 'Save students you want to invite (name plus email or phone). You send the invite from your own phone or email; they join your crew from your link.',
+    summary: 'Save students you want to invite (name plus email or phone), as rows or as pasted text with one person per line. You send the invite from your own phone or email; they join your crew from your link.',
     access: 'provider',
     mutates: true,
-    input: z.object({ contacts: z.array(contactRow).min(1).max(500) }),
-    run: ({ actor, db }, { contacts }) => importInvites(db, actor.providerId, contacts),
+    input: z.object({
+      contacts: z.array(contactRow).min(1).max(500).optional(),
+      text: z.string().max(100_000).optional().describe('Pasted lines like "Maya Chen, maya@example.com" or "Sam Lee, (415) 555-0100"'),
+    }).refine((v) => (v.contacts === undefined) !== (v.text === undefined), 'Send either contacts or text.'),
+    run: ({ actor, db }, { contacts, text }) => (text !== undefined ? importInviteText(db, actor.providerId, text) : importInvites(db, actor.providerId, contacts!)),
+  }),
+
+  'clients.preview': command({
+    summary: 'Preview pasted contacts (one person per line) before saving them as invites: who is ready to add and which lines need an email or phone.',
+    access: 'provider',
+    mutates: false,
+    input: z.object({ text: z.string().max(100_000) }),
+    run: async (_ctx, { text }) => previewInviteText(text),
   }),
 
   'clients.invites': command({
-    summary: 'People you’ve invited who haven’t joined your crew yet.',
+    summary: 'People you’ve invited who haven’t joined your crew yet, with the invite text to send them.',
     access: 'provider',
     mutates: false,
     input: z.object({}),

@@ -1,0 +1,6 @@
+// XCUITest journeys (driven per step by scripts/e2e-ios/run-native.ts).
+PRODUCT_NAME = VamoverseUITests
+PRODUCT_BUNDLE_IDENTIFIER = com.vamoverse.app.uitests
+GENERATE_INFOPLIST_FILE = YES
+TEST_TARGET_NAME = Vamoverse
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks @loader_path/Frameworks

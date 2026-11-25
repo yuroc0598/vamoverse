@@ -1,0 +1,10 @@
+{
+  "data": {
+    "displayName": "Maya Chen",
+    "email": "maya@demo.vamoverse.app",
+    "phone": null,
+    "notifyEmail": true,
+    "notifySms": true,
+    "notifyPush": true
+  }
+}

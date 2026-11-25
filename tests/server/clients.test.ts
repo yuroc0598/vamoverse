@@ -72,3 +72,46 @@ describe('crew', () => {
     await expect(as(stranger)('clients.join', { slug: 'alex-rivera', playerId: leo.id })).rejects.toMatchObject({ code: 'forbidden' })
   })
 })
+
+describe('crew import from pasted text (native app and assistant)', () => {
+  it('parses lines on the server exactly like the web paste preview', async () => {
+    const coach = await makeProvider('Alex Rivera')
+    const result = await as(coach)('clients.import', {
+      text: 'Name, Email, Phone\nMaya Chen, maya@example.com\nSam Lee\t(415) 555-0100\n\nJust A Name\nBad Email, nope@x\nBad Phone, 555-555-55555555',
+    })
+    expect(result).toMatchObject({ added: 2, duplicates: 0, skipped: ['Just A Name', 'Bad Email, nope@x'] })
+    expect(result.failed.map((f) => f.name)).toEqual(['Bad Phone'])
+    expect((await as(coach)('clients.invites', {})).map((i) => [i.name, i.email, i.phone]))
+      .toEqual([['Maya Chen', 'maya@example.com', null], ['Sam Lee', null, '+14155550100']])
+    expect((await as(coach)('clients.import', { text: 'Maya C, MAYA@example.com' })).duplicates).toBe(1)
+  })
+
+  it('previews pasted text without saving anything (same parse as saving)', async () => {
+    const coach = await makeProvider('Alex Rivera')
+    const text = 'Name, Email\nMaya Chen, maya@example.com\nSam Lee\t(415) 555-0100\nJust A Name'
+    expect(await as(coach)('clients.preview', { text })).toEqual({
+      rows: [{ name: 'Maya Chen', email: 'maya@example.com', phone: null }, { name: 'Sam Lee', email: null, phone: '(415) 555-0100' }],
+      skipped: ['Just A Name'],
+    })
+    expect(await as(coach)('clients.invites', {})).toEqual([])
+    expect(await as(coach)('clients.preview', { text: '' })).toEqual({ rows: [], skipped: [] })
+    const player = await makeUser('Maya')
+    await expect(as(player)('clients.preview', { text })).rejects.toMatchObject({ code: 'forbidden' })
+  })
+
+  it('rejects text with nothing importable, and requests with both or neither input', async () => {
+    const coach = await makeProvider('Alex Rivera')
+    await expect(as(coach)('clients.import', { text: 'no contact here' })).rejects.toMatchObject({ code: 'bad_request', message: 'Each line needs a name and an email or phone number.' })
+    await expect(as(coach)('clients.import', { text: '  \n' })).rejects.toMatchObject({ code: 'bad_request', message: 'Paste at least one contact.' })
+    await expect(as(coach)('clients.import', { text: 'Maya, m@example.com', contacts: [{ name: 'Sam', email: 's@example.com' }] })).rejects.toMatchObject({ code: 'bad_request' })
+    await expect(as(coach)('clients.import', {})).rejects.toMatchObject({ code: 'bad_request' })
+  })
+
+  it('returns the invite text the coach sends from their own phone or email', async () => {
+    const coach = await makeProvider('Alex Rivera')
+    await as(coach)('clients.import', { contacts: [{ name: 'Maya Chen', email: 'maya@example.com' }] })
+    const [invite] = await as(coach)('clients.invites', {})
+    expect(invite.subject).toBe('Book with Alex Rivera')
+    expect(invite.message).toBe('Hi Maya, it’s Alex Rivera. I’m using Vamoverse for lessons and clinics now. Book and pay here: http://localhost:3000/p/alex-rivera')
+  })
+})

@@ -1,0 +1,43 @@
+{
+  "data": {
+    "items": [
+      {
+        "id": "ntf_8a5fa21178ed40d8b5ad2afe913a78fd",
+        "kind": "message.new",
+        "title": "Message from Maya Chen",
+        "body": "Hi Alex! Could we work on my second serve at the clinic this week?",
+        "link": "/messages/cnv_8727cf3e3bd64f1c81f88bcdf6132712",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.119Z"
+      },
+      {
+        "id": "ntf_5aded367b2fc4e9184251ca3a4e78969",
+        "kind": "booking.new",
+        "title": "Leo Kim booked",
+        "body": "Junior Development (10–14), Fri, Nov 27, 3:30 PM.",
+        "link": "/sessions/ses_14b7ee311566468f8f4e51087fae64ec",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.111Z"
+      },
+      {
+        "id": "ntf_16ca8b9043234aa491349bca5abb6a94",
+        "kind": "booking.new",
+        "title": "Sarah Patel booked",
+        "body": "3.5 Doubles Clinic, Wed, Nov 25, 6:30 PM.",
+        "link": "/sessions/ses_3eaa19dfa2044430a7ef2d750b05a4c9",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.102Z"
+      },
+      {
+        "id": "ntf_cce664e783f74175863a9a3909f76317",
+        "kind": "booking.new",
+        "title": "Maya Chen booked",
+        "body": "3.5 Doubles Clinic, Wed, Nov 25, 6:30 PM.",
+        "link": "/sessions/ses_3eaa19dfa2044430a7ef2d750b05a4c9",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.085Z"
+      }
+    ],
+    "unread": 4
+  }
+}

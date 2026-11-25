@@ -18,6 +18,8 @@ export default defineConfig([
     'out/**',
     'coverage/**',
     'ios/**',
+    'ios-native/build/**',
+    'ios-native/**/.build/**',
     'node_modules/**',
     'next-env.d.ts',
   ]),

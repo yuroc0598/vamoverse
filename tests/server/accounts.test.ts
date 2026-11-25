@@ -56,6 +56,12 @@ describe('provider settings', () => {
     expect(await as(coach)('courts.list', {})).toEqual([expect.objectContaining({ name: 'Mitchell Park', bookingNote: 'Opens 7 days ahead at 8am' })])
     expect(await as(other)('courts.list', {})).toEqual([])
   })
+
+  it('saves a court from a form with the optional fields left empty', async () => {
+    const coach = await makeProvider()
+    const court = await as(coach)('courts.save', { name: 'Central Park', address: '', notes: '', bookingUrl: '', bookingNote: '' })
+    expect(court).toMatchObject({ name: 'Central Park', address: null, notes: null, bookingUrl: null, bookingNote: null })
+  })
 })
 
 describe('players and family', () => {

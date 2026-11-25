@@ -1,0 +1,25 @@
+{
+  "data": {
+    "items": [
+      {
+        "id": "ntf_90a9c9b53e754fb8a83abb86e547eeea",
+        "kind": "message.new",
+        "title": "Message from Alex Rivera",
+        "body": "Absolutely. Bring a basket of balls and we’ll start with the toss.",
+        "link": "/messages/cnv_8727cf3e3bd64f1c81f88bcdf6132712",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.121Z"
+      },
+      {
+        "id": "ntf_1e02344c540a4cb9a8369d80c068e37c",
+        "kind": "booking.confirmed",
+        "title": "You’re booked: 3.5 Doubles Clinic",
+        "body": "Wed, Nov 25, 6:30 PM at Central Park Tennis Center.",
+        "link": "/b/bkg_1c3bdead9fcf49389b4efad5fd78ed48?t=A00UN1MLVUi9q4egxE5YxNZvQ39B-Mji",
+        "readAt": null,
+        "createdAt": "2026-11-25T06:19:32.084Z"
+      }
+    ],
+    "unread": 2
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "data": {
+    "userId": "usr_38c632b5079b45e3a325bbb296c002ea",
+    "email": "maya@demo.vamoverse.app",
+    "phone": null,
+    "displayName": "Maya Chen",
+    "isAdmin": false,
+    "adultConfirmed": true,
+    "onboarded": true,
+    "playerId": "ply_b72d401503c44b44ab7c84797aa32424",
+    "providerId": null
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "data": {
+    "displayName": "Sam Okafor",
+    "email": "sam@demo.vamoverse.app",
+    "phone": null,
+    "notifyEmail": true,
+    "notifySms": true,
+    "notifyPush": true
+  }
+}

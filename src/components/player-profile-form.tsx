@@ -7,8 +7,6 @@ import { SelectField, TextField } from '@/components/ui/field'
 import { useCommand } from '@/lib/client/api'
 import type { Player } from '@/server/modules/users/players'
 
-const numberOrNull = (value: string) => (value.trim() === '' ? null : Number(value))
-
 export function PlayerProfileForm({ player, showName = false }: { player: Player; showName?: boolean }) {
   const router = useRouter()
   const save = useCommand('players.update', { success: 'Profile saved' })
@@ -32,9 +30,10 @@ export function PlayerProfileForm({ player, showName = false }: { player: Player
         displayName: showName ? form.displayName : undefined,
         birthDate: isJunior ? form.birthDate : undefined,
         gender: (form.gender || null) as Player['gender'],
-        ntrp: numberOrNull(form.ntrp),
-        utrSingles: numberOrNull(form.utrSingles),
-        utrDoubles: numberOrNull(form.utrDoubles),
+        // Sent as typed; the server parses them (empty clears) and explains anything that isn't a number.
+        ntrp: form.ntrp,
+        utrSingles: form.utrSingles,
+        utrDoubles: form.utrDoubles,
         utrProfileId: form.utrProfileId.trim() || null,
       })
       if (result) router.refresh()
